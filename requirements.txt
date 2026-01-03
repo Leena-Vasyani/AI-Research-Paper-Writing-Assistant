@@ -1,0 +1,25 @@
+# Core Dependencies
+streamlit>=1.28.0
+torch>=2.0.0
+transformers>=4.35.0
+sentence-transformers>=2.2.2
+arxiv>=2.0.0
+
+# NLP & ML
+keybert>=0.8.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# LoRA Fine-tuning
+peft>=0.6.0
+accelerate>=0.24.0
+bitsandbytes>=0.41.0
+
+# Visualization
+plotly>=5.17.0
+
+# Optional but recommended
+datasets>=2.14.0
+sentencepiece>=0.1.99
+protobuf>=3.20.0

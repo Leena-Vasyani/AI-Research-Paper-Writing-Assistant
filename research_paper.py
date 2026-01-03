@@ -1,18 +1,15 @@
 import streamlit as st
 import json
-import os
-import sys
 import time
 from datetime import datetime
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from streamlit_lottie import st_lottie
-import requests
-import numpy as np
-from keybert import KeyBERT
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+
+# Import all agents
+from core_agents.query_agent import ScientificQueryAgent
+from core_agents.retrieval_agent import PaperRetrievalAgent
+from core_agents.summarization_agent import PaperSummarizationAgent
+from core_agents.training_data_manager import TrainingDataManager
+from fine_tuning.drafting_agent_trainer import auto_train_if_ready
+from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
 # Page configuration
 st.set_page_config(
@@ -22,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for styling
+# Custom CSS
 def load_css():
     st.markdown("""
     <style>
@@ -35,14 +32,6 @@ def load_css():
         margin-bottom: 2rem;
         font-weight: 700;
     }
-    
-    .sub-header {
-        font-size: 1.5rem;
-        color: #4a5568;
-        margin-bottom: 1rem;
-        font-weight: 600;
-    }
-    
     .section-box {
         background: white;
         padding: 2rem;
@@ -51,179 +40,72 @@ def load_css():
         margin-bottom: 2rem;
         border-left: 5px solid #667eea;
     }
-    
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        text-align: center;
-        margin: 0.5rem;
-    }
-    
-    .progress-bar {
-        height: 8px;
-        background: #e2e8f0;
-        border-radius: 4px;
-        margin: 1rem 0;
-    }
-    
-    .progress-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #667eea, #764ba2);
-        border-radius: 4px;
-        transition: width 0.5s ease-in-out;
-    }
-    
     .paper-card {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 10px;
         padding: 1.5rem;
         margin: 1rem 0;
-        transition: transform 0.2s ease;
     }
-    
-    .paper-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
-    }
-    
-    .section-tabs {
-        background: #f7fafc;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-    }
-    
-    .download-btn {
-        background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-        color: white;
-        padding: 0.5rem 1.5rem;
-        border: none;
-        border-radius: 25px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .download-btn:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(72, 187, 120, 0.3);
-    }
-    
-    .stats-container {
-        display: flex;
-        justify-content: space-around;
-        flex-wrap: wrap;
-        margin: 1rem 0;
-    }
-    
-    .stat-item {
-        text-align: center;
-        padding: 1rem;
-    }
-    
-    .stat-number {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #667eea;
-    }
-    
-    .stat-label {
-        font-size: 0.9rem;
-        color: #718096;
-    }
-    
     .keyword-tag {
         background: #e2e8f0;
         padding: 0.3rem 0.8rem;
         border-radius: 15px;
         margin: 0.2rem;
         display: inline-block;
-        font-size: 0.9rem;
     }
-    
-    .subtopic-item {
-        background: #f7fafc;
-        padding: 0.5rem 1rem;
+    .model-badge {
+        background: #d4edda;
+        color: #155724;
+        padding: 0.3rem 0.8rem;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-left: 0.5rem;
+    }
+    .summary-section {
+        background: #f8fafc;
+        border-left: 4px solid #4299e1;
+        padding: 1rem;
+        margin: 1rem 0;
         border-radius: 8px;
-        margin: 0.2rem;
-        border-left: 3px solid #667eea;
+    }
+    .insight-card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0.5rem 0;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# ============================
-# Scientific Query Agent
-# ============================
-class ScientificQueryAgent:
-    def __init__(self):
-        # Use SciBERT for scientific accuracy
-        self.model = SentenceTransformer("allenai/scibert_scivocab_uncased")
-        self.kw_model = KeyBERT(model=self.model)
-
-    def extract_keywords(self, text, top_n=8):
-        """Extract key scientific phrases using KeyBERT + SciBERT"""
-        keywords = self.kw_model.extract_keywords(
-            text,
-            keyphrase_ngram_range=(1, 3),  # single to 3-word phrases
-            stop_words='english',
-            top_n=top_n,
-            use_maxsum=True,    # reduce redundancy
-            nr_candidates=20
-        )
-        return [kw for kw, score in keywords]
-
-    def expand_keywords(self, keywords, top_n=3):
-        """Expand keywords into related concepts using embeddings similarity"""
-        if not keywords:
-            return {}
-
-        embeddings = self.model.encode(keywords)
-        subtopics = {}
-        for idx, kw in enumerate(keywords):
-            # Compute cosine similarity to all other keywords
-            sims = cosine_similarity([embeddings[idx]], embeddings)[0]
-            # Get top related indices (skip itself)
-            related_idx = np.argsort(sims)[::-1][1:top_n+1]
-            subtopics[kw] = [keywords[i] for i in related_idx]
-        return subtopics
-
-    def run(self, text, top_keywords=8):
-        keywords = self.extract_keywords(text, top_n=top_keywords)
-        subtopics = self.expand_keywords(keywords, top_n=3)
-        return {
-            "original_topic": text,
-            "keywords": keywords,
-            "subtopics": subtopics
-        }
-
 class ResearchPaperGeneratorUI:
     def __init__(self):
+        # Initialize all agents
         self.query_agent = ScientificQueryAgent()
-        # Do not create Streamlit UI elements in __init__ (they must be created during run())
-        # Setup sidebar will be called from run() so widgets are created only once per script run.
+        self.retrieval_agent = PaperRetrievalAgent()
+        self.summarization_agent = PaperSummarizationAgent()
+        self.data_manager = TrainingDataManager()
         load_css()
         
     def setup_sidebar(self):
         with st.sidebar:
             st.markdown("""
             <div style='text-align: center; margin-bottom: 2rem;'>
-                <h1 style='color: #667eea; font-size: 1.8rem;'>🔬 ResearchGen</h1>
-                <p style='color: #718096;'>AI-Powered Research Paper Generation</p>
+                <h1 style='color: #667eea;'>🔬 ResearchGen</h1>
+                <p style='color: #718096;'>Real-time AI Research Assistant</p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("---")
             
             # Navigation
-            st.markdown("### 🧭 Navigation")
             page = st.radio(
-                "Choose a section:",
-                ["🏠 Dashboard", "🎯 Topic Analysis", "🔍 Paper Retrieval", "📊 Summary Analysis", "✍️ Draft Generation", "📁 Output Management"],
-                label_visibility="collapsed",
-                key="sidebar_page_radio"
+                "Navigation",
+                ["🏠 Dashboard", "🎯 Topic Analysis", "🔍 Paper Retrieval", 
+                 "📊 Summary Analysis", "✍️ Draft Generation", "📁 Output Management"],
+                label_visibility="collapsed"
             )
             
             st.markdown("---")
@@ -233,26 +115,36 @@ class ResearchPaperGeneratorUI:
             col1, col2 = st.columns(2)
             with col1:
                 papers_count = len(st.session_state.get('retrieved_papers', []))
-                st.metric("Papers Retrieved", papers_count)
+                st.metric("Papers", papers_count)
             with col2:
                 drafts_count = 1 if st.session_state.get('generated_draft') else 0
-                st.metric("Drafts Generated", drafts_count)
+                st.metric("Drafts", drafts_count)
                 
             st.markdown("---")
             
-            # Settings
-            st.markdown("### ⚙️ Settings")
-            st.selectbox("Model Preference", ["DialoGPT-large", "GPT-2", "Custom Model"])
-            st.slider("Generation Temperature", 0.1, 1.0, 0.7)
-            st.number_input("Max Papers to Retrieve", 1, 20, 5)
+            # Training Status
+            st.markdown("### 🎯 AI Training")
+            stats = self.data_manager.get_training_statistics()
+            
+            st.metric("Research Projects", stats['total_samples'])
+            st.metric("Total References", stats['total_references'])
+            
+            if stats['total_samples'] > 0:
+                progress = min(stats['total_samples'] / 5, 1.0)
+                st.progress(progress)
+                st.caption(f"{stats['total_samples']}/5 projects")
+            
+            if stats['total_samples'] >= 3:
+                if st.button("🚀 Train AI Model", use_container_width=True):
+                    st.session_state.training_triggered = True
             
             st.markdown("---")
             
             # Footer
             st.markdown("""
             <div style='text-align: center; color: #718096; font-size: 0.8rem;'>
-                <p>Built with ❤️ using Streamlit</p>
-                <p>Research Paper Generator v1.0</p>
+                <p>Real-time Research Generator</p>
+                <p>Powered by arXiv & Transformers</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -261,17 +153,30 @@ class ResearchPaperGeneratorUI:
     def dashboard_page(self):
         st.markdown('<div class="main-header">🔬 Research Paper Generator</div>', unsafe_allow_html=True)
         
+        # Training trigger
+        if st.session_state.get('training_triggered'):
+            with st.sidebar:
+                with st.spinner("🔄 Training AI with your research data..."):
+                    try:
+                        if auto_train_if_ready():
+                            st.success("🎉 AI trained successfully!")
+                        else:
+                            st.warning("Need more projects (3+)")
+                    except Exception as e:
+                        st.error(f"Training failed: {e}")
+                    st.session_state.training_triggered = False
+        
         # Hero Section
         col1, col2 = st.columns([2, 1])
         
         with col1:
             st.markdown("""
             <div class="section-box">
-                <h2 class="sub-header">🚀 Generate Comprehensive Research Papers with AI</h2>
-                <p style="font-size: 1.1rem; color: #4a5568; line-height: 1.6;">
-                Transform your research ideas into fully-formed academic papers using advanced AI. 
-                Our system analyzes your topic, retrieves relevant papers, and generates professional 
-                draft sections including abstracts, introductions, and literature reviews.
+                <h2>🚀 Real-time Research Paper Generation</h2>
+                <p style="font-size: 1.1rem; line-height: 1.6;">
+                Generate comprehensive research papers using real data from arXiv. 
+                Our system retrieves actual papers, generates summaries using NLP, 
+                and creates professional drafts with AI.
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -280,658 +185,507 @@ class ResearchPaperGeneratorUI:
             st.markdown("""
             <div style="text-align: center; padding: 2rem;">
                 <div style="font-size: 4rem;">📚</div>
-                <p style="color: #718096; margin-top: 1rem;">AI Research Assistant</p>
+                <p>Real Data • Real AI</p>
             </div>
             """, unsafe_allow_html=True)
         
-        # Quick Start Section
+        # Quick Start
         st.markdown("### 🚀 Quick Start")
         with st.form("quick_start"):
             research_topic = st.text_input(
-                "Enter Your Research Topic *",
-                placeholder="e.g., Applications of Large Language Models in Healthcare"
+                "Research Topic *",
+                placeholder="e.g., Large Language Models in Healthcare"
             )
             
             col1, col2 = st.columns(2)
             with col1:
-                num_keywords = st.slider("Number of Keywords", 5, 15, 8)
+                num_keywords = st.slider("Keywords", 5, 15, 8)
             with col2:
-                num_papers = st.slider("Papers to Retrieve", 3, 15, 5)
+                num_papers = st.slider("Papers", 3, 15, 5)
             
-            if st.form_submit_button("🎯 Start Research Generation", use_container_width=True):
+            if st.form_submit_button("🎯 Start Generation", use_container_width=True):
                 if research_topic:
                     st.session_state.research_topic = research_topic
                     st.session_state.num_keywords = num_keywords
                     st.session_state.num_papers = num_papers
-                    st.success("Research topic saved! Navigate to Topic Analysis to continue.")
+                    st.success("✅ Topic saved! Go to Topic Analysis →")
                     st.rerun()
                 else:
-                    st.error("Please enter a research topic to continue.")
-        
-        # Metrics Section
-        st.markdown("### 📊 Project Overview")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.markdown("""
-            <div class="metric-card">
-                <div style="font-size: 2rem;">🎯</div>
-                <h3>Topic Analysis</h3>
-                <p>AI-powered keyword extraction</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with col2:
-            st.markdown("""
-            <div class="metric-card">
-                <div style="font-size: 2rem;">🔍</div>
-                <h3>Paper Retrieval</h3>
-                <p>Fetch from arXiv database</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with col3:
-            st.markdown("""
-            <div class="metric-card">
-                <div style="font-size: 2rem;">📊</div>
-                <h3>Smart Analysis</h3>
-                <p>Multi-algorithm summarization</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with col4:
-            st.markdown("""
-            <div class="metric-card">
-                <div style="font-size: 2rem;">✍️</div>
-                <h3>AI Drafting</h3>
-                <p>Generate paper sections</p>
-            </div>
-            """, unsafe_allow_html=True)
+                    st.error("Please enter a topic")
     
     def topic_analysis_page(self):
         st.markdown('<div class="main-header">🎯 Topic Analysis</div>', unsafe_allow_html=True)
         
-        # Topic Input Section
-        with st.expander("🔧 Research Topic Configuration", expanded=True):
+        # Configuration
+        with st.expander("🔧 Configuration", expanded=True):
             col1, col2 = st.columns(2)
             
             with col1:
                 research_topic = st.text_input(
-                    "Research Topic *",
+                    "Research Topic",
                     value=st.session_state.get('research_topic', ''),
-                    placeholder="Applications of Large Language Models in Healthcare"
+                    placeholder="Enter your research topic"
                 )
                 
             with col2:
                 num_keywords = st.slider(
-                    "Number of Keywords to Generate",
+                    "Keywords to Extract",
                     5, 15,
                     st.session_state.get('num_keywords', 8)
                 )
             
-            if st.button("💾 Save Topic", use_container_width=True):
+            if st.button("💾 Save", use_container_width=True):
                 if research_topic:
                     st.session_state.research_topic = research_topic
                     st.session_state.num_keywords = num_keywords
-                    st.success("Topic configuration saved!")
+                    st.success("Saved!")
                 else:
-                    st.error("Please enter a research topic.")
+                    st.error("Enter a topic")
         
-        # Topic Analysis Section
         if not st.session_state.get('research_topic'):
-            st.warning("⚠️ Please enter a research topic above to start analysis.")
+            st.warning("⚠️ Please enter a research topic above")
             return
         
-        st.markdown("### 🔍 AI Topic Analysis")
+        st.markdown("### 🔍 AI Analysis")
         
-        if st.button("🧠 Analyze Topic & Generate Keywords", use_container_width=True, type="primary"):
-            with st.spinner("🕐 Analyzing research topic and extracting keywords..."):
+        if st.button("🧠 Analyze Topic", use_container_width=True, type="primary"):
+            with st.spinner("Analyzing with SciBERT..."):
                 progress_bar = st.progress(0)
                 
-                # Simulate analysis process
-                for i in range(100):
-                    time.sleep(0.01)
-                    progress_bar.progress(i + 1)
-                
-                # Use the actual query agent
                 try:
+                    # REAL analysis using SciBERT
+                    for i in range(50):
+                        time.sleep(0.01)
+                        progress_bar.progress((i + 1) * 2)
+                    
                     query_result = self.query_agent.run(
-                        st.session_state.research_topic, 
+                        st.session_state.research_topic,
                         top_keywords=st.session_state.num_keywords
                     )
                     st.session_state.query_result = query_result
-                    st.success("✅ Topic analysis completed successfully!")
+                    st.success("✅ Analysis complete!")
+                    
                 except Exception as e:
-                    st.error(f"Error during topic analysis: {str(e)}")
-                    # Fallback mock data
-                    st.session_state.query_result = {
-                        "original_topic": st.session_state.research_topic,
-                        "keywords": ["healthcare", "language", "models", "applications", "large", "medical", "AI", "clinical"],
-                        "subtopics": {
-                            "healthcare": ["medical care", "wellness", "health profession"],
-                            "language": ["speech", "linguistics", "idiom"],
-                            "models": ["framework", "pattern", "representation"],
-                            "applications": ["use", "employment", "practical use"],
-                            "large": ["big", "immense", "grand"],
-                            "medical": ["clinical", "health", "treatment"],
-                            "AI": ["artificial intelligence", "machine learning", "neural networks"],
-                            "clinical": ["medical", "patient", "treatment"]
-                        }
-                    }
-                    st.info("Using fallback data due to analysis error.")
+                    st.error(f"Analysis error: {str(e)}")
+                    st.info("Please check your internet connection")
         
-        # Display Analysis Results
+        # Display Results
         if st.session_state.get('query_result'):
             result = st.session_state.query_result
             
-            st.markdown("### 📋 Analysis Results")
+            st.markdown("### 📋 Results")
             
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                st.markdown("""
+                st.markdown(f"""
                 <div class="section-box">
-                    <h4>Original Topic</h4>
-                    <p style="font-size: 1.2rem; color: #2d3748; font-weight: 500;">{}</p>
+                    <h4>Topic</h4>
+                    <p style="font-size: 1.2rem;">{result["original_topic"]}</p>
                 </div>
-                """.format(result["original_topic"]), unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
                 
-                st.markdown("#### 🔑 Extracted Keywords")
-                keywords_html = "".join([f'<span class="keyword-tag">{kw}</span>' for kw in result["keywords"]])
-                st.markdown(f'<div style="margin: 1rem 0;">{keywords_html}</div>', unsafe_allow_html=True)
+                st.markdown("#### 🔑 Keywords")
+                keywords_html = "".join([f'<span class="keyword-tag">{kw}</span>' 
+                                        for kw in result["keywords"]])
+                st.markdown(f'<div>{keywords_html}</div>', unsafe_allow_html=True)
             
             with col2:
-                st.metric("Keywords Generated", len(result["keywords"]))
-                st.metric("Subtopics Mapped", len(result["subtopics"]))
+                st.metric("Keywords", len(result["keywords"]))
+                st.metric("Subtopics", len(result["subtopics"]))
             
-            # Subtopics Visualization
-            st.markdown("#### 🗺️ Topic Map & Subtopics")
-            
-            for main_topic, subtopics in result["subtopics"].items():
-                with st.expander(f"📌 {main_topic.capitalize()}", expanded=False):
-                    cols = st.columns(3)
-                    for i, subtopic in enumerate(subtopics):
-                        with cols[i % 3]:
-                            st.markdown(f'<div class="subtopic-item">{subtopic}</div>', unsafe_allow_html=True)
-            
-            # Query JSON for Retrieval Agent
-            st.markdown("#### 📨 Query Data for Retrieval")
-            st.json(result)
-            
-            # Next Step Guidance
             st.markdown("---")
-            st.success("""
-            **✅ Topic analysis complete!** 
-            
-            Next steps:
-            1. The query data above will be automatically used by the Retrieval Agent
-            2. Navigate to **Paper Retrieval** to fetch relevant research papers
-            3. The system will use these keywords and subtopics to find the most relevant papers
-            """)
+            st.success("✅ Ready! Navigate to **Paper Retrieval** →")
     
     def retrieval_page(self):
         st.markdown('<div class="main-header">🔍 Paper Retrieval</div>', unsafe_allow_html=True)
         
         if not st.session_state.get('query_result'):
-            st.warning("""
-            ⚠️ Please complete topic analysis first!
-            
-            Navigate to **Topic Analysis** to analyze your research topic and generate keywords 
-            that will be used to retrieve relevant papers.
-            """)
+            st.warning("⚠️ Complete topic analysis first!")
             return
         
         query_result = st.session_state.query_result
         
-        # Display Current Query
-        with st.expander("📋 Current Query Configuration", expanded=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Research Topic", query_result["original_topic"])
-            with col2:
-                st.metric("Keywords", len(query_result["keywords"]))
-            with col3:
-                st.metric("Subtopics", len(query_result["subtopics"]))
-        
-        # Paper Retrieval Section
-        st.markdown("### 📥 Paper Retrieval from arXiv")
+        st.markdown("### 📥 Retrieve from arXiv")
         
         num_papers = st.session_state.get('num_papers', 5)
         
-        if st.button("🚀 Retrieve Research Papers", use_container_width=True, type="primary"):
-            with st.spinner(f"🕐 Searching arXiv for {num_papers} relevant papers..."):
+        if st.button("🚀 Retrieve Papers", use_container_width=True, type="primary"):
+            with st.spinner(f"Fetching {num_papers} papers from arXiv..."):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                for i in range(100):
-                    time.sleep(0.02)
-                    progress_bar.progress(i + 1)
-                    if i < 25:
-                        status_text.text("🔍 Building search queries from keywords...")
-                    elif i < 50:
-                        status_text.text("📡 Querying arXiv database...")
-                    elif i < 75:
-                        status_text.text("📊 Ranking papers by relevance...")
-                    else:
-                        status_text.text("✅ Finalizing results...")
-                
-                # Mock results based on query
-                mock_papers = [
-                    {
-                        "title": f"Large Language Models for {query_result['keywords'][0]} Applications", 
-                        "authors": "Smith et al.", 
-                        "snippet": f"This paper explores the application of LLMs in {query_result['keywords'][0]} settings with focus on {query_result['subtopics'][query_result['keywords'][0]][0]}...", 
-                        "confidence": 0.89,
-                        "query_used": query_result['keywords'][0]
-                    },
-                    {
-                        "title": f"Transformer Architectures in {query_result['keywords'][1]} {query_result['keywords'][2]}", 
-                        "authors": "Johnson et al.", 
-                        "snippet": f"We present a novel transformer-based approach for {query_result['keywords'][1]} {query_result['keywords'][2]} with applications in {query_result['subtopics'][query_result['keywords'][1]][1]}...", 
-                        "confidence": 0.85,
-                        "query_used": f"{query_result['keywords'][1]} {query_result['keywords'][2]}"
-                    },
-                    {
-                        "title": f"AI-Assisted {query_result['keywords'][0]} Using {query_result['keywords'][2]}", 
-                        "authors": "Chen et al.", 
-                        "snippet": f"Our research demonstrates how {query_result['keywords'][2]} can improve accuracy in {query_result['keywords'][0]} applications focusing on {query_result['subtopics'][query_result['keywords'][0]][2]}...", 
-                        "confidence": 0.92,
-                        "query_used": f"{query_result['keywords'][0]} {query_result['keywords'][2]}"
-                    }
-                ]
-                
-                # Add more mock papers based on subtopics
-                for i in range(3, num_papers):
-                    main_topic = list(query_result["subtopics"].keys())[i % len(query_result["subtopics"])]
-                    subtopic = query_result["subtopics"][main_topic][i % 3]
-                    mock_papers.append({
-                        "title": f"Advanced {main_topic.capitalize()} in {subtopic.capitalize()} Contexts",
-                        "authors": "Researcher et al.",
-                        "snippet": f"This study investigates {main_topic} applications in {subtopic} domains using modern AI approaches...",
-                        "confidence": 0.78 + (i * 0.03),
-                        "query_used": f"{main_topic} {subtopic}"
-                    })
-                
-                st.session_state.retrieved_papers = mock_papers[:num_papers]
-                status_text.text("✅ Paper retrieval complete!")
-            
-            st.success(f"✅ Successfully retrieved {len(st.session_state.retrieved_papers)} papers!")
+                try:
+                    status_text.text("🔍 Building search query...")
+                    progress_bar.progress(20)
+                    
+                    # REAL arXiv retrieval
+                    status_text.text("📡 Querying arXiv API...")
+                    progress_bar.progress(40)
+                    
+                    papers = self.retrieval_agent.retrieve_papers_multi_query(
+                        query_result['keywords'],
+                        query_result['subtopics'],
+                        max_results=num_papers
+                    )
+                    
+                    progress_bar.progress(80)
+                    status_text.text("📊 Ranking papers...")
+                    
+                    # Calculate relevance scores
+                    for paper in papers:
+                        paper['relevance'] = self.retrieval_agent.calculate_relevance_score(
+                            paper, query_result['keywords']
+                        )
+                    
+                    # Sort by relevance
+                    papers.sort(key=lambda x: x['relevance'], reverse=True)
+                    
+                    st.session_state.retrieved_papers = papers
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Complete!")
+                    
+                    st.success(f"✅ Retrieved {len(papers)} real papers from arXiv!")
+                    
+                except Exception as e:
+                    st.error(f"Retrieval error: {str(e)}")
+                    st.info("Check internet connection or try fewer papers")
         
-        # Display Retrieved Papers
+        # Display Papers
         if hasattr(st.session_state, 'retrieved_papers'):
-            st.markdown("### 📋 Retrieved Papers")
+            st.markdown(f"### 📋 Retrieved Papers ({len(st.session_state.retrieved_papers)})")
             
-            for i, paper in enumerate(st.session_state.retrieved_papers):
-                with st.container():
-                    col1, col2 = st.columns([4, 1])
+            for i, paper in enumerate(st.session_state.retrieved_papers, 1):
+                with st.expander(f"📄 {i}. {paper['title']}", expanded=False):
+                    col1, col2 = st.columns([3, 1])
                     
                     with col1:
-                        st.markdown(f"""
-                        <div class="paper-card">
-                            <h4 style="color: #2d3748; margin-bottom: 0.5rem;">{paper['title']}</h4>
-                            <p style="color: #718096; font-size: 0.9rem; margin-bottom: 0.5rem;">
-                                <strong>Authors:</strong> {paper['authors']} | 
-                                <strong>Query:</strong> <code>{paper['query_used']}</code>
-                            </p>
-                            <p style="color: #4a5568; line-height: 1.4;">{paper['snippet']}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.write(f"**Authors:** {paper['authors_str']}")
+                        st.write(f"**Published:** {paper['published']}")
+                        st.write(f"**Category:** {paper['primary_category']}")
+                        st.write(f"**Abstract:** {paper['abstract'][:300]}...")
+                        st.write(f"[📥 PDF]({paper['pdf_url']})")
                     
                     with col2:
-                        confidence_color = "🔴" if paper['confidence'] < 0.7 else "🟡" if paper['confidence'] < 0.9 else "🟢"
-                        st.metric("Relevance", f"{paper['confidence']:.0%}", confidence_color)
+                        relevance_pct = paper.get('relevance', 0.5) * 100
+                        color = "🟢" if relevance_pct > 70 else "🟡" if relevance_pct > 50 else "🟠"
+                        st.metric("Relevance", f"{relevance_pct:.0f}%", color)
             
-            # Query Effectiveness Analysis
-            st.markdown("### 📊 Query Effectiveness")
-            
-            # Analyze which queries were most effective
-            query_usage = {}
-            for paper in st.session_state.retrieved_papers:
-                query = paper['query_used']
-                query_usage[query] = query_usage.get(query, 0) + 1
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### Most Effective Queries")
-                for query, count in sorted(query_usage.items(), key=lambda x: x[1], reverse=True)[:5]:
-                    st.write(f"`{query}`: {count} papers")
-            
-            with col2:
-                avg_confidence = sum(p['confidence'] for p in st.session_state.retrieved_papers) / len(st.session_state.retrieved_papers)
-                st.metric("Average Relevance", f"{avg_confidence:.1%}")
-                st.metric("Total Papers", len(st.session_state.retrieved_papers))
-            
-            # Next Step
             st.markdown("---")
-            st.info("""
-            **📝 Ready for the next step!**
-            
-            Papers have been successfully retrieved using your topic analysis. 
-            Navigate to **Summary Analysis** to generate comprehensive summaries of these papers.
-            """)
+            st.success("✅ Ready! Navigate to **Summary Analysis** →")
     
     def summary_analysis_page(self):
         st.markdown('<div class="main-header">📊 Summary Analysis</div>', unsafe_allow_html=True)
         
         if not hasattr(st.session_state, 'retrieved_papers'):
-            st.warning("⚠️ Please retrieve papers first from the Paper Retrieval page.")
+            st.warning("⚠️ Retrieve papers first!")
             return
         
-        # Summary Generation
-        st.markdown("### 🔍 Generate Paper Summaries")
+        st.markdown("### 🔍 Generate Comprehensive Summary")
         
-        if st.button("🧠 Generate Comprehensive Summaries", use_container_width=True, type="primary"):
-            with st.spinner("🕐 Analyzing papers and generating summaries..."):
+        # Configuration options
+        with st.expander("⚙️ Summary Configuration", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                include_executive_summary = st.checkbox("Executive Summary", value=True)
+                include_methods = st.checkbox("Methodologies", value=True)
+            with col2:
+                include_findings = st.checkbox("Key Findings", value=True)
+                include_gaps = st.checkbox("Research Gaps", value=True)
+        
+        if st.button("🧠 Generate Comprehensive Summary", use_container_width=True, type="primary"):
+            with st.spinner("Analyzing papers with NLP..."):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                for i in range(100):
-                    time.sleep(0.03)
-                    progress_bar.progress(i + 1)
-                    status_text.text(f"Processing... {i+1}%")
-                
-                # Mock summary data based on retrieved papers
-                mock_summaries = []
-                for paper in st.session_state.retrieved_papers:
-                    mock_summaries.append({
-                        "title": paper['title'],
-                        "confidence": paper['confidence'],
-                        "sections": {
-                            "abstract": f"This paper presents a novel approach to {paper['title'].lower()}. The research focuses on applications in the domain and demonstrates significant improvements over existing methods...",
-                            "methodology": f"The methodology employs advanced techniques including transformer architectures and specialized fine-tuning approaches tailored for the specific application domain...",
-                            "findings": f"Experimental results show promising outcomes with measurable improvements in accuracy and efficiency compared to baseline approaches..."
-                        },
-                        "keywords": st.session_state.query_result["keywords"][:4],
-                        "metrics": [f"Accuracy: {int(paper['confidence'] * 100)}%", f"Precision: {int(paper['confidence'] * 95)}%", f"Recall: {int(paper['confidence'] * 90)}%"]
-                    })
-                
-                st.session_state.paper_summaries = mock_summaries
-                status_text.text("✅ Analysis complete!")
-            
-            st.success("Successfully generated summaries for all papers!")
+                try:
+                    # REAL summarization using the new method
+                    status_text.text("📥 Extracting and combining paper content...")
+                    progress_bar.progress(20)
+                    
+                    # Generate comprehensive summary using the new method
+                    comprehensive_summary = self.summarization_agent.generate_comprehensive_summary(
+                        st.session_state.retrieved_papers,
+                        st.session_state.query_result['keywords']
+                    )
+                    
+                    progress_bar.progress(60)
+                    status_text.text("🔍 Organizing by sections and extracting insights...")
+                    
+                    # Format for display
+                    formatted_summary = self.summarization_agent.format_summary_for_display(
+                        comprehensive_summary
+                    )
+                    
+                    st.session_state.comprehensive_summary = comprehensive_summary
+                    st.session_state.formatted_summary = formatted_summary
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Complete!")
+                    
+                    st.success("✅ Comprehensive summary generated!")
+                    
+                except Exception as e:
+                    st.error(f"Summarization error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
         
-        # Display Summaries
-        if hasattr(st.session_state, 'paper_summaries'):
-            st.markdown("### 📋 Paper Summaries")
+        # Display Comprehensive Summary
+        if hasattr(st.session_state, 'comprehensive_summary'):
+            summary = st.session_state.comprehensive_summary
             
-            for summary in st.session_state.paper_summaries:
-                with st.expander(f"📄 {summary['title']} (Confidence: {summary['confidence']:.0%})", expanded=False):
-                    col1, col2 = st.columns([3, 1])
-                    
-                    with col1:
-                        st.markdown("#### Abstract")
-                        st.info(summary['sections']['abstract'])
-                        
-                        st.markdown("#### Methodology")
-                        st.write(summary['sections']['methodology'])
-                        
-                        st.markdown("#### Key Findings")
-                        st.success(summary['sections']['findings'])
-                    
-                    with col2:
-                        st.markdown("#### 📊 Metrics")
-                        for metric in summary['metrics']:
-                            st.metric(metric.split(":")[0], metric.split(":")[1])
-                        
-                        st.markdown("#### 🔑 Keywords")
-                        for keyword in summary['keywords']:
-                            st.markdown(f"`{keyword}`")
+            st.markdown("### 📋 Comprehensive Summary of All Papers")
             
-            # Summary Statistics
-            st.markdown("### 📈 Analysis Overview")
-            col1, col2, col3, col4 = st.columns(4)
+            # Metadata
+            with st.expander("📊 Analysis Metadata", expanded=False):
+                meta = summary["metadata"]
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Papers", meta["total_papers"])
+                with col2:
+                    st.metric("Full Text Papers", meta["papers_with_full_text"])
+                with col3:
+                    st.metric("Keywords", len(meta["keywords"]))
             
-            with col1:
-                st.metric("Total Papers", len(st.session_state.paper_summaries))
-            with col2:
-                avg_confidence = sum(s['confidence'] for s in st.session_state.paper_summaries) / len(st.session_state.paper_summaries)
-                st.metric("Avg Confidence", f"{avg_confidence:.0%}")
-            with col3:
-                total_keywords = len(set(k for s in st.session_state.paper_summaries for k in s['keywords']))
-                st.metric("Unique Keywords", total_keywords)
-            with col4:
-                st.metric("Analysis Complete", "✅")
+            # Executive Summary
+            if include_executive_summary:
+                st.markdown("### 📝 Executive Summary")
+                st.markdown('<div class="summary-section">', unsafe_allow_html=True)
+                st.write(summary["executive_summary"])
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Section Summaries
+            st.markdown("### 🔬 Section-wise Synthesis")
+            
+            tabs = st.tabs(list(summary["section_summaries"].keys()))
+            
+            for tab, (section_name, section_content) in zip(tabs, summary["section_summaries"].items()):
+                with tab:
+                    st.markdown('<div class="summary-section">', unsafe_allow_html=True)
+                    st.write(section_content)
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Key Insights
+            if include_methods or include_findings:
+                st.markdown("### 💡 Key Insights")
                 
-            # Next Step
-            st.markdown("---")
-            st.success("""
-            **✍️ Ready for draft generation!**
+                insights = summary["key_insights"]
+                
+                if include_methods and insights["methodological_approaches"]:
+                    st.markdown("#### 🛠️ Methodological Approaches")
+                    for insight in insights["methodological_approaches"][:5]:
+                        st.markdown(f'<div class="insight-card">• {insight}</div>', unsafe_allow_html=True)
+                
+                if include_findings and insights["major_findings"]:
+                    st.markdown("#### 📊 Major Findings")
+                    for insight in insights["major_findings"][:5]:
+                        st.markdown(f'<div class="insight-card">• {insight}</div>', unsafe_allow_html=True)
             
-            Paper summaries have been successfully generated. 
-            Navigate to **Draft Generation** to create your research paper draft.
-            """)
+            # Research Gaps
+            if include_gaps and summary["research_gaps"]:
+                st.markdown("### 🔍 Identified Research Gaps")
+                for gap in summary["research_gaps"][:5]:
+                    st.markdown(f'<div class="insight-card">• {gap}</div>', unsafe_allow_html=True)
+            
+            # Final Synthesis
+            st.markdown("### 🎯 Final Synthesis")
+            st.info(summary["synthesis"])
+            
+            # Download formatted summary
+            st.markdown("---")
+            st.download_button(
+                "📥 Download Full Summary",
+                data=st.session_state.formatted_summary,
+                file_name=f"comprehensive_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            
+            st.markdown("---")
+            st.success("✅ Ready! Navigate to **Draft Generation** →")
     
     def draft_generation_page(self):
-        st.markdown('<div class="main-header">✍️ Draft Generation</div>', unsafe_allow_html=True)
+        st.markdown('<div class="main-header">✍️ Pattern-Based Draft Generation</div>', unsafe_allow_html=True)
         
-        if not hasattr(st.session_state, 'paper_summaries'):
-            st.warning("⚠️ Please generate paper summaries first from the Summary Analysis page.")
+        if not hasattr(st.session_state, 'comprehensive_summary'):
+            st.warning("⚠️ Generate comprehensive summary first!")
             return
         
-        # Draft Configuration
-        with st.expander("⚙️ Draft Configuration", expanded=True):
+        # Configuration
+        with st.expander("⚙️ Configuration", expanded=True):
             col1, col2 = st.columns(2)
             
             with col1:
-                draft_style = st.selectbox(
-                    "Writing Style",
-                    ["Academic Formal", "Technical Report", "Conference Paper", "Journal Article"]
-                )
-                
-                abstract_length = st.slider("Abstract Length", 200, 500, 300)
-            
+                temperature = st.slider("Creativity", 0.1, 1.0, 0.7)
             with col2:
-                include_citations = st.checkbox("Include Citations", value=True)
-                technical_depth = st.select_slider(
-                    "Technical Depth",
-                    options=["Introductory", "Intermediate", "Advanced", "Expert"]
-                )
+                max_length = st.slider("Max Length", 300, 800, 500)
         
-        # Generate Draft
-        st.markdown("### 🎨 Generate Research Draft")
+        st.markdown("### 🎨 Generate Draft")
         
-        if st.button("✨ Generate Complete Draft", use_container_width=True, type="primary"):
-            with st.spinner("🕐 Generating comprehensive research draft..."):
+        if st.button("✨ Generate", use_container_width=True, type="primary"):
+            with st.spinner("Generating clean academic draft..."):
                 progress_bar = st.progress(0)
                 
-                for i in range(100):
-                    time.sleep(0.02)
-                    progress_bar.progress(i + 1)
-                
-                # Generate draft based on the actual research topic and summaries
-                research_topic = st.session_state.get('research_topic', 'Unknown Topic')
-                mock_draft = {
-                    "abstract": f"""
-                    {research_topic}. This research presents a comprehensive analysis and novel framework for addressing key challenges in the field. 
-                    Through extensive literature review and experimental validation, we demonstrate significant advancements in methodology and application. 
-                    Our approach integrates cutting-edge techniques with practical considerations, resulting in measurable improvements over existing solutions.
-                    """,
-                    "introduction": f"""
-                    The field of {research_topic.split()[-1] if research_topic.split() else 'research'} has witnessed remarkable growth in recent years, 
-                    driven by advancements in artificial intelligence and computational methods. This paper addresses the pressing need for 
-                    more effective approaches to {research_topic.lower()}. The integration of modern technologies with traditional methodologies 
-                    presents both opportunities and challenges that require careful consideration.
-
-                    Our research builds upon the foundation established by previous studies while introducing innovative elements that 
-                    significantly enhance performance and applicability. The key contributions of this work include novel architectural 
-                    improvements, comprehensive evaluation frameworks, and practical implementation guidelines that bridge the gap between 
-                    theoretical research and real-world applications.
-                    """,
-                    "related_work": f"""
-                    Previous research in {research_topic} has explored various approaches and methodologies. Early work focused primarily on 
-                    fundamental principles and basic applications, while more recent studies have investigated advanced techniques and 
-                    sophisticated frameworks. The evolution of this field reflects broader trends in technology adoption and methodological 
-                    refinement.
-
-                    Several key studies have laid the groundwork for current research directions. These include foundational papers on 
-                    core methodologies as well as application-specific investigations that have expanded the scope and impact of research 
-                    in this domain. However, significant gaps remain in the literature, particularly regarding integration with emerging 
-                    technologies and scalability considerations.
-
-                    Our work addresses these limitations through a comprehensive approach that combines established best practices with 
-                    innovative solutions. By building upon the strengths of previous research while addressing identified weaknesses, 
-                    we contribute to the ongoing development and refinement of approaches in this important field.
-                    """
-                }
-                
-                st.session_state.generated_draft = mock_draft
-            
-            st.success("✅ Research draft generated successfully!")
+                try:
+                    # Use clean drafting agent
+                    config = DraftingConfig(
+                        temperature=temperature,
+                        max_new_tokens=max_length  # Use max_new_tokens instead of max_length
+                    )
+                    
+                    drafting_agent = get_drafting_agent(config)
+                    
+                    progress_bar.progress(33)
+                    
+                    # Generate using comprehensive summary
+                    draft = drafting_agent.generate_complete_draft(
+                        st.session_state.research_topic,
+                        st.session_state.comprehensive_summary,
+                        st.session_state.query_result['keywords']
+                    )
+                    
+                    st.session_state.generated_draft = draft
+                    st.session_state.used_fine_tuned = drafting_agent.is_fine_tuned
+                    
+                    progress_bar.progress(100)
+                    
+                    # Collect training data
+                    if not st.session_state.get('data_collected'):
+                        self.data_manager.add_completed_research(
+                            st.session_state.research_topic,
+                            st.session_state.query_result,
+                            st.session_state.comprehensive_summary,
+                            draft
+                        )
+                        st.session_state.data_collected = True
+                        
+                        stats = self.data_manager.get_training_statistics()
+                        if stats['total_samples'] >= 3:
+                            st.info("💡 You can now train a custom AI model!")
+                    
+                    st.success("✅ Clean draft generated!")
+                    
+                except Exception as e:
+                    st.error(f"Generation error: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
         
-        # Display Generated Draft
+        # Display Draft
         if hasattr(st.session_state, 'generated_draft'):
-            st.markdown("### 📝 Generated Research Draft")
+            model_type = "Fine-tuned AI" if st.session_state.get('used_fine_tuned') else "Base AI"
+            st.markdown(f"### 📝 Draft <span class='model-badge'>{model_type}</span>", 
+                    unsafe_allow_html=True)
             
-            tab1, tab2, tab3 = st.tabs(["📄 Abstract", "📖 Introduction", "📚 Related Work"])
+            tab1, tab2, tab3 = st.tabs(["Abstract", "Introduction", "Related Work"])
             
             with tab1:
-                st.markdown("#### Abstract")
-                st.markdown(f'<div class="section-box">{st.session_state.generated_draft["abstract"]}</div>', unsafe_allow_html=True)
-                st.metric("Word Count", len(st.session_state.generated_draft["abstract"].split()))
+                st.write(st.session_state.generated_draft["abstract"])
+                st.caption(f"{len(st.session_state.generated_draft['abstract'].split())} words")
             
             with tab2:
-                st.markdown("#### Introduction")
-                st.markdown(f'<div class="section-box">{st.session_state.generated_draft["introduction"]}</div>', unsafe_allow_html=True)
-                st.metric("Word Count", len(st.session_state.generated_draft["introduction"].split()))
+                st.write(st.session_state.generated_draft["introduction"])
+                st.caption(f"{len(st.session_state.generated_draft['introduction'].split())} words")
             
             with tab3:
-                st.markdown("#### Related Work")
-                st.markdown(f'<div class="section-box">{st.session_state.generated_draft["related_work"]}</div>', unsafe_allow_html=True)
-                st.metric("Word Count", len(st.session_state.generated_draft["related_work"].split()))
+                st.write(st.session_state.generated_draft["related_work"])
+                st.caption(f"{len(st.session_state.generated_draft['related_work'].split())} words")
             
-            # Download Section
+            # Download
             st.markdown("---")
-            col1, col2, col3 = st.columns([2, 1, 1])
+            draft_content = f"""RESEARCH PAPER DRAFT
+    Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}
+    Topic: {st.session_state.research_topic}
+    Model: {model_type}
+
+    ABSTRACT
+    {st.session_state.generated_draft['abstract']}
+
+    INTRODUCTION
+    {st.session_state.generated_draft['introduction']}
+
+    RELATED WORK
+    {st.session_state.generated_draft['related_work']}
+    """
             
-            with col2:
-                # Create downloadable content
-                draft_content = f"""
-RESEARCH PAPER DRAFT
-Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}
-Topic: {st.session_state.get('research_topic', 'Unknown Topic')}
-
-ABSTRACT
-{st.session_state.generated_draft['abstract']}
-
-1. INTRODUCTION
-{st.session_state.generated_draft['introduction']}
-
-2. RELATED WORK
-{st.session_state.generated_draft['related_work']}
-"""
-                
-                st.download_button(
-                    label="📥 Download Draft as TXT",
-                    data=draft_content,
-                    file_name=f"research_draft_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-            
-            with col3:
-                if st.button("🔄 Generate New Draft", use_container_width=True):
-                    del st.session_state.generated_draft
-                    st.rerun()
+            st.download_button(
+                "📥 Download Draft",
+                data=draft_content,
+                file_name=f"draft_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
     
     def output_management_page(self):
         st.markdown('<div class="main-header">📁 Output Management</div>', unsafe_allow_html=True)
         
-        # Project Overview
-        col1, col2 = st.columns([2, 1])
+        # Stats
+        stats = self.data_manager.get_training_statistics()
         
+        col1, col2, col3 = st.columns(3)
         with col1:
-            current_topic = st.session_state.get('research_topic', 'No topic set')
-            st.markdown(f"""
-            <div class="section-box">
-                <h3 class="sub-header">📊 Project Summary</h3>
-                <p><strong>Research Topic:</strong> {current_topic}</p>
-                <p>Manage your generated research materials and export final outputs.</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
+            st.metric("Research Projects", stats['total_samples'])
         with col2:
-            status = "✅ Complete" if st.session_state.get('generated_draft') else "🟡 In Progress"
-            st.markdown(f"""
-            <div class="metric-card">
-                <div style="font-size: 2rem;">📈</div>
-                <h3>Project Status</h3>
-                <p>{status}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric("Total References", stats['total_references'])
+        with col3:
+            st.metric("Topics Covered", stats['topics_covered'])
         
-        # Export Options
-        st.markdown("### 📤 Export Options")
+        # Exports
+        st.markdown("### 📤 Export Data")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             if st.session_state.get('generated_draft'):
-                draft_content = f"""
-RESEARCH PAPER DRAFT
-Topic: {st.session_state.get('research_topic', 'Unknown')}
-Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}
-
-{st.session_state.generated_draft['abstract']}
-
-{st.session_state.generated_draft['introduction']}
-
-{st.session_state.generated_draft['related_work']}
-"""
+                draft_content = f"""DRAFT\n\n{st.session_state.generated_draft['abstract']}\n\n{st.session_state.generated_draft['introduction']}\n\n{st.session_state.generated_draft['related_work']}"""
                 st.download_button(
-                    "📄 Download Research Draft",
+                    "📄 Draft",
                     data=draft_content,
-                    file_name="research_draft.txt",
-                    mime="text/plain",
+                    file_name="draft.txt",
                     use_container_width=True
                 )
             else:
-                st.button("📄 Download Research Draft", disabled=True, use_container_width=True)
+                st.button("📄 Draft", disabled=True, use_container_width=True)
         
         with col2:
-            if st.session_state.get('paper_summaries'):
-                summary_content = "PAPER SUMMARIES\n\n"
-                for summary in st.session_state.paper_summaries:
-                    summary_content += f"Title: {summary['title']}\nConfidence: {summary['confidence']:.0%}\n\n"
-                st.download_button(
-                    "📊 Download Summary Report",
-                    data=summary_content,
-                    file_name="paper_summaries.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-            else:
-                st.button("📊 Download Summary Report", disabled=True, use_container_width=True)
-        
-        with col3:
             if st.session_state.get('query_result'):
                 query_content = json.dumps(st.session_state.query_result, indent=2)
                 st.download_button(
-                    "🔗 Download Query Data",
+                    "🔗 Query Data",
                     data=query_content,
-                    file_name="query_analysis.json",
+                    file_name="query.json",
                     mime="application/json",
                     use_container_width=True
                 )
             else:
-                st.button("🔗 Download Query Data", disabled=True, use_container_width=True)
+                st.button("🔗 Query Data", disabled=True, use_container_width=True)
         
-        # Recent Activity
-        st.markdown("### 📋 Project Timeline")
+        with col3:
+            if stats['total_samples'] > 0:
+                training_data = json.dumps(self.data_manager.training_data, indent=2)
+                st.download_button(
+                    "📚 Training Data",
+                    data=training_data,
+                    file_name="training.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+            else:
+                st.button("📚 Training Data", disabled=True, use_container_width=True)
         
-        activities = []
-        if st.session_state.get('research_topic'):
-            activities.append(("Research Topic Set", "✅", datetime.now().strftime("%H:%M")))
-        if st.session_state.get('query_result'):
-            activities.append(("Topic Analysis Complete", "✅", datetime.now().strftime("%H:%M")))
-        if st.session_state.get('retrieved_papers'):
-            activities.append((f"Papers Retrieved ({len(st.session_state.retrieved_papers)})", "✅", datetime.now().strftime("%H:%M")))
-        if st.session_state.get('paper_summaries'):
-            activities.append(("Summaries Generated", "✅", datetime.now().strftime("%H:%M")))
-        if st.session_state.get('generated_draft'):
-            activities.append(("Research Draft Generated", "✅", datetime.now().strftime("%H:%M")))
-        
-        for activity, status, time in activities:
-            st.write(f"{status} {activity} - {time}")
+        # Display comprehensive summary if available
+        if hasattr(st.session_state, 'formatted_summary'):
+            st.markdown("### 📊 Comprehensive Summary")
+            with st.expander("View Summary"):
+                st.text(st.session_state.formatted_summary)
+                
+            st.download_button(
+                "📥 Download Comprehensive Summary",
+                data=st.session_state.formatted_summary,
+                file_name="comprehensive_summary.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
     
     def run(self):
         # Initialize session state
@@ -941,6 +695,10 @@ Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}
             st.session_state.num_keywords = 8
         if 'num_papers' not in st.session_state:
             st.session_state.num_papers = 5
+        if 'training_triggered' not in st.session_state:
+            st.session_state.training_triggered = False
+        if 'data_collected' not in st.session_state:
+            st.session_state.data_collected = False
         
         page = self.setup_sidebar()
         
