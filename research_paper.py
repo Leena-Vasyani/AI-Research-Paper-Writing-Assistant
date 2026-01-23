@@ -8,6 +8,7 @@ from core_agents.query_agent import ScientificQueryAgent
 from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
 from core_agents.training_data_manager import TrainingDataManager
+from core_agents.plagiarism_agent import PlagiarismDetectionAgent
 from fine_tuning.drafting_agent_trainer import auto_train_if_ready
 from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
@@ -87,6 +88,7 @@ class ResearchPaperGeneratorUI:
         self.retrieval_agent = PaperRetrievalAgent()
         self.summarization_agent = PaperSummarizationAgent()
         self.data_manager = TrainingDataManager()
+        self.plagiarism_agent = PlagiarismDetectionAgent()
         load_css()
         
     def setup_sidebar(self):
@@ -104,7 +106,7 @@ class ResearchPaperGeneratorUI:
             page = st.radio(
                 "Navigation",
                 ["🏠 Dashboard", "🎯 Topic Analysis", "🔍 Paper Retrieval", 
-                 "📊 Summary Analysis", "✍️ Draft Generation", "📁 Output Management"],
+                 "📊 Summary Analysis", "✍️ Draft Generation", "� Plagiarism Check", "�📁 Output Management"],
                 label_visibility="collapsed"
             )
             
@@ -615,6 +617,228 @@ class ResearchPaperGeneratorUI:
                 mime="text/plain",
                 use_container_width=True
             )
+            
+            st.markdown("---")
+            st.info("✅ Draft ready! Navigate to **🔎 Plagiarism Check** to analyze for plagiarism →")
+    
+    def plagiarism_check_page(self):
+        st.markdown('<div class="main-header">🔎 Plagiarism Detection</div>', unsafe_allow_html=True)
+        
+        if not hasattr(st.session_state, 'generated_draft'):
+            st.warning("⚠️ Generate a draft first!")
+            return
+        
+        if not hasattr(st.session_state, 'retrieved_papers'):
+            st.warning("⚠️ No source papers available for comparison!")
+            return
+        
+        st.markdown("### 🔍 Check Draft for Plagiarism")
+        
+        # Info box
+        st.info("""
+        **How it works:**
+        - Compares your generated draft against retrieved source papers
+        - Uses AI to detect semantic similarity at sentence level
+        - Provides detailed rewrite suggestions for flagged content
+        - Scores: Good < 30%, Moderate 30-50%, High > 50%
+        """)
+        
+        # Configuration
+        with st.expander("⚙️ Detection Settings", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"**Good**: < 30% similarity")
+                st.success(f"**Moderate**: 30-50% similarity")
+            with col2:
+                st.warning(f"**High**: > 50% similarity")
+                st.error(f"Needs rewriting!")
+            
+            st.markdown("---")
+            use_external_api = st.checkbox(
+                "🌐 Use External API Validation (Experimental)",
+                value=False,
+                help="Validates high-severity cases with external plagiarism APIs (requires API key configuration)"
+            )
+        
+        if st.button("🚀 Run Plagiarism Check", use_container_width=True, type="primary"):
+            with st.spinner("🔍 Analyzing draft for plagiarism..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    status_text.text("🔍 Extracting source content...")
+                    progress_bar.progress(20)
+                    
+                    # Run plagiarism detection
+                    status_text.text("🧠 Calculating similarity scores...")
+                    progress_bar.progress(40)
+                    
+                    plagiarism_report = self.plagiarism_agent.check_plagiarism(
+                        st.session_state.generated_draft,
+                        st.session_state.retrieved_papers,
+                        st.session_state.research_topic
+                    )
+                    
+                    progress_bar.progress(70)
+                    status_text.text("💡 Generating rewrite suggestions...")
+                    
+                    # Add detailed suggestions
+                    plagiarism_report = self.plagiarism_agent.generate_detailed_suggestions(
+                        plagiarism_report
+                    )
+                    
+                    # Optionally check with external APIs
+                    if use_external_api:
+                        progress_bar.progress(85)
+                        status_text.text("🌐 Validating with external APIs...")
+                        
+                        plagiarism_report = self.plagiarism_agent.check_with_external_apis(
+                            plagiarism_report,
+                            use_web_search=False
+                        )
+                    
+                    st.session_state.plagiarism_report = plagiarism_report
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Analysis complete!")
+                    
+                    st.success("✅ Plagiarism analysis complete!")
+                    
+                except Exception as e:
+                    st.error(f"Analysis error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+        
+        # Display results
+        if hasattr(st.session_state, 'plagiarism_report'):
+            report = st.session_state.plagiarism_report
+            
+            st.markdown("---")
+            st.markdown("### 📊 Plagiarism Analysis Results")
+            
+            # Overall score with color coding
+            score = report['overall_score']
+            status = report['overall_status']
+            
+            if status == 'good':
+                score_color = "#28a745"  # Green
+                status_icon = "✅"
+            elif status == 'moderate':
+                score_color = "#ffc107"  # Yellow
+                status_icon = "⚠️"
+            else:
+                score_color = "#dc3545"  # Red
+                status_icon = "🚨"
+            
+            # Display overall score
+            st.markdown(f"""
+            <div style="background: white; padding: 2rem; border-radius: 15px; text-align: center; 
+                        border-left: 5px solid {score_color}; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h2 style="color: {score_color}; margin: 0;">{status_icon} {score:.1f}%</h2>
+                <p style="color: #666; font-size: 1.2rem;">{report['overall_message']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("")
+            
+            # Statistics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Sentences", report['statistics']['total_sentences'])
+            with col2:
+                st.metric("Flagged Sentences", report['statistics']['sentences_flagged'])
+            with col3:
+                st.metric("Percentage Flagged", 
+                         f"{report['statistics']['percentage_flagged']:.1f}%")
+            
+            # Section-wise results
+            st.markdown("### 📑 Section-wise Analysis")
+            
+            for section in report['section_analyses']:
+                section_status = section['status']
+                section_icon = "✅" if section_status == 'good' else "⚠️" if section_status == 'moderate' else "🚨"
+                
+                with st.expander(f"{section_icon} {section['section_name']} - {section['plagiarism_score']:.1f}%", 
+                               expanded=(section_status != 'good')):
+                    
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.write(f"**Score:** {section['plagiarism_score']:.1f}%")
+                        st.write(f"**Status:** {section_status.upper()}")
+                    with col2:
+                        st.write(f"**Flagged:** {section['sentences_flagged']}/{section['total_sentences']}")
+                    
+                    # Show flagged sentences
+                    if section['flagged_sentences']:
+                        st.markdown("#### 🚩 Flagged Sentences")
+                        
+                        for i, flagged in enumerate(section['flagged_sentences'], 1):
+                            severity_color = "#dc3545" if flagged['severity'] == 'high' else "#ffc107"
+                            
+                            st.markdown(f"""
+                            <div style="background: #f8f9fa; padding: 1rem; margin: 0.5rem 0; 
+                                        border-left: 4px solid {severity_color}; border-radius: 5px;">
+                                <strong>[{i}] Similarity: {flagged['similarity_score']*100:.1f}%</strong> 
+                                ({flagged['severity'].upper()})
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            st.write(f"**Your Draft:** {flagged['sentence']}")
+                            st.write(f"**Source Match:** {flagged['source_match'][:200]}...")
+                            
+                            # Show suggestions if available
+                            if 'suggestions' in flagged:
+                                st.markdown("**💡 Rewrite Suggestions:**")
+                                for suggestion in flagged['suggestions'][:6]:
+                                    st.text(suggestion)
+                                
+                                # Show strategies
+                                if 'rewrite_examples' in flagged:
+                                    st.markdown("**🔧 Rewrite Strategies:**")
+                                    for example in flagged['rewrite_examples'][:3]:
+                                        st.markdown(f"- **{example['strategy']}**: {example['description']}")
+                                        st.caption(example['note'])
+                            
+                            st.markdown("---")
+            
+            # General guidelines
+            if 'suggestions_summary' in report:
+                st.markdown("### 📚 General Rewriting Guidelines")
+                for guideline in report['suggestions_summary']['general_guidelines']:
+                    st.markdown(f"- {guideline}")
+            
+            # External validation info
+            if 'external_validation' in report:
+                ext_val = report['external_validation']
+                if ext_val['checks_performed'] > 0:
+                    st.markdown("### 🌐 External Validation")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("External Checks", ext_val['checks_performed'])
+                    with col2:
+                        st.metric("Additional Matches", ext_val['matches_found'])
+                elif not ext_val['api_configured']:
+                    st.info("""
+                    💡 **Pro Tip**: Configure external plagiarism APIs for additional validation.
+                    Free options include Copyleaks free tier, PlagiarismCheck.org API.
+                    Edit `core_agents/plagiarism_agent.py` to add API keys.
+                    """)
+            
+            # Export report
+            st.markdown("---")
+            st.markdown("### 📥 Export Report")
+            
+            formatted_report = self.plagiarism_agent.format_report_for_export(report)
+            
+            st.download_button(
+                "📄 Download Plagiarism Report",
+                data=formatted_report,
+                file_name=f"plagiarism_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            
+            st.success("✅ Review flagged sections and apply suggested changes to reduce plagiarism!")
     
     def output_management_page(self):
         st.markdown('<div class="main-header">📁 Output Management</div>', unsafe_allow_html=True)
@@ -712,7 +936,9 @@ class ResearchPaperGeneratorUI:
             self.summary_analysis_page()
         elif page == "✍️ Draft Generation":
             self.draft_generation_page()
-        elif page == "📁 Output Management":
+        elif page == "� Plagiarism Check":
+            self.plagiarism_check_page()
+        elif page == "�📁 Output Management":
             self.output_management_page()
 
 # Run the application

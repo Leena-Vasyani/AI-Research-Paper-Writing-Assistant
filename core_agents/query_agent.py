@@ -13,13 +13,13 @@ class ScientificQueryAgent:
         print("🔄 Loading SciBERT model for query analysis...")
         try:
             # Use SciBERT for scientific accuracy
-            self.model = SentenceTransformer("allenai/scibert_scivocab_uncased")
+            self.model = SentenceTransformer("allenai/scibert_scivocab_uncased", device="cpu")
             self.kw_model = KeyBERT(model=self.model)
             print("✅ SciBERT model loaded successfully")
         except Exception as e:
             print(f"⚠️ Error loading SciBERT: {e}")
             print("🔄 Falling back to all-MiniLM model...")
-            self.model = SentenceTransformer("all-MiniLM-L6-v2")
+            self.model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
             self.kw_model = KeyBERT(model=self.model)
 
     def extract_keywords(self, text: str, top_n: int = 8) -> List[str]:
