@@ -545,7 +545,7 @@ const getIssues = (text: string): Issue[] => {
     });
   }
 
-  if (/\b\w+\b \1\b/i.test(text)) {
+  if (/(\b\w+\b) \1\b/i.test(text)) {
     issues.push({
       id: "repeated-word",
       title: "Repeated word",
@@ -640,14 +640,12 @@ const suggestWords = (word: string, index: Map<string, string[]>) => {
     .map((item) => item.w);
 };
 
-type ProseMirrorDoc = {
-  descendants: (cb: (node: ProseMirrorNode, pos: number) => void) => void;
-};
-type ProseMirrorNode = { isText: boolean; text?: string };
-
-const buildSpellDecorations = (doc: ProseMirrorDoc, wordSet: Set<string>) => {
+const buildSpellDecorations = (
+  doc: any,
+  wordSet: Set<string>,
+): DecorationSet => {
   const decorations: Decoration[] = [];
-  doc.descendants((node: ProseMirrorNode, pos: number) => {
+  doc.descendants((node: any, pos: number) => {
     if (!node.isText) return;
     const text = node.text || "";
     const regex = /[a-zA-Z']+/g;

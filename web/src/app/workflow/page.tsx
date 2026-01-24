@@ -496,7 +496,7 @@ export default function WorkflowPage() {
                             </div>
                             <ul className="mt-1 list-disc space-y-1 pl-4 text-zinc-200">
                               {items.map((item) => (
-                                <li key={item}>{item}</li>
+                                <li key={String(item)}>{String(item)}</li>
                               ))}
                             </ul>
                           </div>
