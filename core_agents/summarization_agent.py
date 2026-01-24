@@ -1,12 +1,30 @@
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import re
 import PyPDF2
 import requests
 from io import BytesIO
 import time
 import math
+import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv, find_dotenv
+except Exception:
+    load_dotenv = None
+    find_dotenv = None
+
+try:
+    from groq import Groq
+except Exception:
+    Groq = None
+
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
 
 class PaperSummarizationAgent:
     """
@@ -15,17 +33,41 @@ class PaperSummarizationAgent:
     2. Generates a comprehensive, section-wise overall summary of ALL papers
     """
     
-    def __init__(self, model_name: str = "facebook/bart-large-cnn"):
+    def __init__(self, model_name: str = "facebook/bart-large-cnn", use_api: bool = True):
         """
         Initialize summarization model
         
         Args:
             model_name: Hugging Face model for summarization
         """
-        print(f"🔄 Loading summarization model: {model_name}")
+        print(f"🔄 Initializing summarization agent (quality-optimized)")
         
+        if load_dotenv is not None:
+            project_root = Path(__file__).resolve().parents[1]
+            explicit_env = project_root / ".env"
+            if explicit_env.exists():
+                load_dotenv(dotenv_path=str(explicit_env))
+                print(f"✅ Loaded .env from {explicit_env}")
+            else:
+                dotenv_path = find_dotenv() if find_dotenv is not None else None
+                if dotenv_path:
+                    load_dotenv(dotenv_path=dotenv_path)
+                    print(f"✅ Loaded .env from {dotenv_path}")
+                else:
+                    print("⚠️ .env not found; using system environment variables only")
+        else:
+            print("⚠️ python-dotenv not installed; .env will not be loaded")
+
         self.device = 0 if torch.cuda.is_available() else -1
         self.model_name = model_name
+        self.use_api = use_api
+
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        self.groq_client = None
+        self.gemini_model = None
+
+        self._init_api_clients()
         
         try:
             # Load model and tokenizer
@@ -61,6 +103,36 @@ class PaperSummarizationAgent:
             except Exception as e2:
                 print(f"⚠️ Fallback also failed: {e2}")
                 raise
+
+    def _init_api_clients(self) -> None:
+        """Initialize Groq and Gemini clients if API keys are available."""
+        if not self.use_api:
+            print("ℹ️ API usage disabled; using local summarizer only")
+            return
+
+        if not self.groq_api_key:
+            print("⚠️ GROQ_API_KEY not set; Groq disabled")
+        if not self.gemini_api_key:
+            print("⚠️ GEMINI_API_KEY not set; Gemini disabled")
+
+        if self.groq_api_key and Groq is not None:
+            try:
+                self.groq_client = Groq(api_key=self.groq_api_key)
+                print("✅ Groq client ready")
+            except Exception as e:
+                print(f"⚠️ Groq init failed: {e}")
+        elif self.groq_api_key and Groq is None:
+            print("⚠️ Groq library not installed; run pip install groq")
+
+        if self.gemini_api_key and genai is not None:
+            try:
+                genai.configure(api_key=self.gemini_api_key)
+                self.gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+                print("✅ Gemini client ready")
+            except Exception as e:
+                print(f"⚠️ Gemini init failed: {e}")
+        elif self.gemini_api_key and genai is None:
+            print("⚠️ google-generativeai not installed; run pip install google-generativeai")
     
     def extract_text_from_pdf(self, pdf_url: str, max_pages: int = 30) -> str:
         """
@@ -151,6 +223,153 @@ class PaperSummarizationAgent:
             text = self.tokenizer.decode(truncated_tokens, skip_special_tokens=True)
         
         return text.strip()
+
+    def _split_sentences(self, text: str) -> List[str]:
+        """Basic sentence splitter with cleanup."""
+        if not text:
+            return []
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        cleaned = []
+        for s in sentences:
+            s = re.sub(r'\s+', ' ', s).strip()
+            if 40 <= len(s) <= 400:
+                cleaned.append(s)
+        return cleaned
+
+    def _keyword_overlap_score(self, sentence: str, keywords: List[str]) -> float:
+        if not keywords:
+            return 0.0
+        sent_lower = sentence.lower()
+        hits = sum(1 for kw in keywords if kw.lower() in sent_lower)
+        return hits / max(len(keywords), 1)
+
+    def select_evidence_sentences(self, text: str, keywords: List[str], max_sentences: int = 5) -> List[str]:
+        """Select diverse, high-salience sentences to ground summaries."""
+        sentences = self._split_sentences(text)
+        if not sentences:
+            return []
+
+        scored: List[Tuple[float, str]] = []
+        for idx, s in enumerate(sentences):
+            position_bonus = max(0.0, 1.0 - (idx / max(len(sentences), 1)))
+            keyword_score = self._keyword_overlap_score(s, keywords)
+            length_score = min(len(s) / 200.0, 1.0)
+            score = (0.55 * keyword_score) + (0.25 * position_bonus) + (0.20 * length_score)
+            scored.append((score, s))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        selected = []
+        selected_tokens = []
+
+        for _, s in scored:
+            s_tokens = set(re.findall(r'\w+', s.lower()))
+            if any(len(s_tokens & st) / max(len(s_tokens | st), 1) > 0.6 for st in selected_tokens):
+                continue
+            selected.append(s)
+            selected_tokens.append(s_tokens)
+            if len(selected) >= max_sentences:
+                break
+
+        return selected
+
+    def _build_prompt(
+        self,
+        section_name: str,
+        keywords: List[str],
+        target_words: int,
+        evidence_sentences: List[str],
+        text: str
+    ) -> str:
+        evidence_block = "\n".join([f"- \"{s}\"" for s in evidence_sentences]) if evidence_sentences else "- (No strong evidence sentences found)"
+
+        prompt = (
+            "You are an expert academic research writer. Produce a top-tier, factual summary for a research paper synthesis. "
+            "Use ONLY the provided source text and evidence sentences. Do NOT invent facts. "
+            f"Write in an academic-neutral narrative style. Target length: {target_words} words. "
+            "Include 3–5 short quoted evidence lines at the end under a heading 'Evidence'.\n\n"
+            f"Section: {section_name}\n"
+            f"Keywords: {', '.join(keywords) if keywords else 'N/A'}\n\n"
+            "Evidence sentences (use these to ground your summary):\n"
+            f"{evidence_block}\n\n"
+            "Source text:\n"
+            f"{text}\n\n"
+            "Output format:\n"
+            "- 1–2 paragraphs summary\n"
+            "- Evidence: bullet list of 3–5 short quotes (verbatim)\n"
+        )
+        return prompt
+
+    def _summarize_with_groq(self, prompt: str, max_tokens: int) -> Optional[str]:
+        if not self.groq_client:
+            return None
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                top_p=0.1,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"   ⚠️ Groq summarization failed: {e}")
+            return None
+
+    def _summarize_with_gemini(self, prompt: str, max_tokens: int) -> Optional[str]:
+        if not self.gemini_model:
+            return None
+        try:
+            response = self.gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.0,
+                    "top_p": 0.1,
+                    "max_output_tokens": max_tokens
+                }
+            )
+            return response.text.strip() if response and response.text else None
+        except Exception as e:
+            print(f"   ⚠️ Gemini summarization failed: {e}")
+            return None
+
+    def _summarize_with_local(self, text: str, target_tokens: int = 300) -> str:
+        return self.summarize_large_text_safely(text, target_tokens=target_tokens)
+
+    def summarize_text_with_provider(
+        self,
+        provider: str,
+        text: str,
+        keywords: List[str],
+        section_name: str,
+        target_words: int
+    ) -> Optional[str]:
+        cleaned_text = self.preprocess_text(text, max_tokens=6000)
+        evidence = self.select_evidence_sentences(cleaned_text, keywords, max_sentences=5)
+        prompt = self._build_prompt(section_name, keywords, target_words, evidence, cleaned_text)
+        max_tokens = int(target_words * 1.5)
+
+        if provider == "groq":
+            return self._summarize_with_groq(prompt, max_tokens)
+        if provider == "gemini":
+            return self._summarize_with_gemini(prompt, max_tokens)
+        if provider == "local":
+            local_summary = self._summarize_with_local(cleaned_text, target_tokens=int(target_words * 1.2))
+            if evidence:
+                evidence_block = "\n".join([f"- \"{s}\"" for s in evidence])
+                return f"{local_summary}\n\nEvidence:\n{evidence_block}"
+            return local_summary
+        return None
+
+    def summarize_text_best(self, text: str, keywords: List[str], section_name: str, target_words: int) -> str:
+        """Summarize using Groq -> Gemini -> Local fallback order."""
+        providers = ["groq", "gemini", "local"]
+        for provider in providers:
+            print(f"   🔎 Trying provider: {provider}")
+            result = self.summarize_text_with_provider(provider, text, keywords, section_name, target_words)
+            if result:
+                return result
+        return "Summary unavailable due to provider errors."
     
     def chunk_text_by_tokens(self, text: str, max_tokens: int = 800, overlap: int = 100) -> List[str]:
         """
@@ -354,31 +573,36 @@ class PaperSummarizationAgent:
                     current_section = "abstracts"
                     current_content = [line]
                 elif re.match(r'^\s*1\.?\s*introduction\s*$', line_lower) or \
-                     re.match(r'^\s*introduction\s*$', line_lower):
+                     re.match(r'^\s*introduction\s*$', line_lower) or \
+                     re.match(r'^\s*background\s*$', line_lower):
                     if current_section and current_content:
                         section_content[current_section].append('\n'.join(current_content))
                     current_section = "introductions"
                     current_content = [line]
                 elif re.match(r'^\s*2\.?\s*method', line_lower) or \
-                     re.match(r'^\s*method', line_lower):
+                     re.match(r'^\s*method', line_lower) or \
+                     re.match(r'^\s*materials\s+and\s+methods\s*$', line_lower):
                     if current_section and current_content:
                         section_content[current_section].append('\n'.join(current_content))
                     current_section = "methods"
                     current_content = [line]
                 elif re.match(r'^\s*3\.?\s*result', line_lower) or \
-                     re.match(r'^\s*result', line_lower):
+                     re.match(r'^\s*result', line_lower) or \
+                     re.match(r'^\s*findings\s*$', line_lower):
                     if current_section and current_content:
                         section_content[current_section].append('\n'.join(current_content))
                     current_section = "results"
                     current_content = [line]
                 elif re.match(r'^\s*4\.?\s*discussion\s*$', line_lower) or \
-                     re.match(r'^\s*discussion\s*$', line_lower):
+                     re.match(r'^\s*discussion\s*$', line_lower) or \
+                     re.match(r'^\s*analysis\s*$', line_lower):
                     if current_section and current_content:
                         section_content[current_section].append('\n'.join(current_content))
                     current_section = "discussions"
                     current_content = [line]
                 elif re.match(r'^\s*5\.?\s*conclusion\s*$', line_lower) or \
-                     re.match(r'^\s*conclusion\s*$', line_lower):
+                     re.match(r'^\s*conclusion\s*$', line_lower) or \
+                     re.match(r'^\s*conclusions\s*$', line_lower):
                     if current_section and current_content:
                         section_content[current_section].append('\n'.join(current_content))
                     current_section = "conclusions"
@@ -458,7 +682,12 @@ class PaperSummarizationAgent:
         
         # Generate overall summary
         print("\n1. Generating overall executive summary...")
-        overall_summary = self.summarize_large_text_safely(combined_text, target_tokens=300)
+        overall_summary = self.summarize_text_best(
+            combined_text,
+            keywords=keywords,
+            section_name="Overall Executive Summary",
+            target_words=320
+        )
         
         # Extract and summarize by sections
         print("\n2. Extracting section-wise content...")
@@ -485,9 +714,11 @@ class PaperSummarizationAgent:
             
             if content_list and len(content_list) > 0:
                 combined_section_text = '\n\n'.join(content_list)
-                section_summary = self.summarize_large_text_safely(
-                    combined_section_text, 
-                    target_tokens=target_tokens
+                section_summary = self.summarize_text_best(
+                    combined_section_text,
+                    keywords=keywords,
+                    section_name=section_name,
+                    target_words=int(target_tokens * 1.1)
                 )
                 section_summaries[section_name] = section_summary
             else:

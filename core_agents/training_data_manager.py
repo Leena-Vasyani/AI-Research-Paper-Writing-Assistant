@@ -90,9 +90,18 @@ class TrainingDataManager:
             generated_draft: Generated draft sections
         """
         
+        if not isinstance(paper_summaries, list):
+            print("⚠️ Skipping training data: paper_summaries is not a list")
+            return
+
+        paper_summaries = [s for s in paper_summaries if isinstance(s, dict)]
+        if not paper_summaries:
+            print("⚠️ Skipping training data: no valid paper summaries")
+            return
+
         # Quality filter: only add samples with good confidence scores
         high_quality_summaries = [
-            s for s in paper_summaries 
+            s for s in paper_summaries
             if s.get('confidence', 0) > 0.6
         ]
         

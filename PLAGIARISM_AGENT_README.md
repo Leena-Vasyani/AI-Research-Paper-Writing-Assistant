@@ -108,7 +108,6 @@ You can adjust these in the agent initialization.
 To enable external plagiarism checking:
 
 1. **Sign up for a free API** (options):
-
    - [Copyleaks](https://copyleaks.com/) - Free tier available
    - [PlagiarismCheck.org](https://plagiarismcheck.org/) - API available
    - [Google Custom Search API](https://developers.google.com/custom-search) - 100 queries/day free
@@ -207,6 +206,21 @@ Run the standalone test:
 ```powershell
 .\venv\Scripts\python core_agents\plagiarism_agent.py
 ```
+
+### Summarization Quality Check (Groq → Gemini → Local)
+
+Optional quick comparison using the new summarization quality harness:
+
+```powershell
+.\venv\Scripts\python core_agents\summary_quality_check.py
+```
+
+Environment variables:
+
+- `GROQ_API_KEY` (primary)
+- `GEMINI_API_KEY` (secondary)
+
+If neither is set, the script will run only the local summarizer.
 
 This will:
 
