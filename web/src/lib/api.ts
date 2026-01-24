@@ -1,5 +1,6 @@
 import type {
   ComprehensiveSummary,
+  DiagramResult,
   Draft,
   Paper,
   PlagiarismReport,
@@ -72,6 +73,17 @@ export const api = {
     mode: "expand" | "academic" | "refine";
   }) =>
     request<{ refined_text: string; provider: string }>("/api/refine-block", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  generateDiagram: (payload: { description: string; diagram_type?: string }) =>
+    request<{
+      success: boolean;
+      mermaid_code: string;
+      provider: string;
+      diagram_type: string;
+      error?: string;
+    }>("/api/diagram", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

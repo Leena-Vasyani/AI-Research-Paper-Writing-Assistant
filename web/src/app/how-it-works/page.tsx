@@ -29,6 +29,12 @@ const agents = [
     purpose: "Checks similarity against sources and flags risks.",
     output: "Plagiarism report",
   },
+  {
+    title: "Diagram Agent",
+    purpose:
+      "Converts natural language descriptions into editable technical diagrams using Mermaid.js.",
+    output: "Interactive diagrams (flowcharts, sequence, ER, etc.)",
+  },
 ];
 
 const tools = [
@@ -42,6 +48,19 @@ const tools = [
       "Interactive citation chips with quick context",
       "One-click LaTeX/Word export",
       "Live quality constraints (word limits, voice checks)",
+    ],
+  },
+  {
+    title: "Text to Diagram",
+    description:
+      "Generate professional technical diagrams from plain text descriptions using AI-powered Mermaid.js code generation.",
+    features: [
+      "Natural language to diagram conversion",
+      "Support for 8+ diagram types (flowcharts, sequence, class, ER, Gantt, etc.)",
+      "Live editable Mermaid code with instant preview",
+      "Export diagrams as SVG or PNG",
+      "Dark theme optimized for presentations",
+      "Perfect for system architectures, workflows, and data models",
     ],
   },
 ];
@@ -66,6 +85,7 @@ export default function HowItWorksPage() {
             <li>3. Summarize with evidence-backed synthesis.</li>
             <li>4. Draft academic sections with tuned prompts.</li>
             <li>5. Verify originality with plagiarism checks.</li>
+            <li>6. Visualize concepts with AI-generated diagrams.</li>
           </ol>
         </SectionCard>
 
@@ -110,7 +130,12 @@ export default function HowItWorksPage() {
             >
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold">{tool.title}</div>
-                <Badge tone="info">New</Badge>
+                {tool.title === "Text to Diagram" && (
+                  <Badge tone="success">New</Badge>
+                )}
+                {tool.title === "Smart Drafter" && (
+                  <Badge tone="info">Featured</Badge>
+                )}
               </div>
               <p className="mt-2 text-sm text-zinc-400">{tool.description}</p>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-300">

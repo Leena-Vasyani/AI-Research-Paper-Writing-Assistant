@@ -45,3 +45,8 @@ class PlagiarismRequest(BaseModel):
 class RefineBlockRequest(BaseModel):
     text: str = Field(..., description="Block text to refine")
     mode: str = Field("refine", description="expand|academic|refine")
+
+
+class DiagramRequest(BaseModel):
+    description: str = Field(..., description="Text description for diagram")
+    diagram_type: str = Field("auto", description="Optional diagram type hint")
