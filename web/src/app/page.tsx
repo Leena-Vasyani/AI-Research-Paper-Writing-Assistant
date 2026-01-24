@@ -26,12 +26,12 @@ export default function Home() {
           value={5}
           caption="Query → Retrieval → Summary → Draft → Plagiarism"
         />
+        <StatCard label="Tools" value={1} caption="Smart Drafter workspace" />
         <StatCard
           label="Outputs"
           value="3+"
           caption="Summary, draft, plagiarism report"
         />
-        <StatCard label="Latency" value="Fast" caption="Optimized pipeline" />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
@@ -75,6 +75,40 @@ export default function Home() {
             rigor. It keeps sources transparent, structures every step, and
             delivers export-ready drafts you can refine with confidence.
           </p>
+        </SectionCard>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-2">
+        <SectionCard
+          title="Smart Drafter"
+          description="A block-based writing space built for research papers."
+          actions={<Badge tone="info">New Tool</Badge>}
+          footer={
+            <Link
+              href="/how-it-works"
+              className="text-sm text-indigo-300 hover:underline"
+            >
+              See Smart Drafter details →
+            </Link>
+          }
+        >
+          <ul className="space-y-2 text-sm text-zinc-300">
+            <li>• Drag-and-drop sections like a Notion-style editor.</li>
+            <li>• Expand rough notes into academic paragraphs.</li>
+            <li>• Clickable citations with context previews.</li>
+            <li>• Export to LaTeX or Word instantly.</li>
+          </ul>
+        </SectionCard>
+        <SectionCard
+          title="Quality constraints"
+          description="Real-time checks keep writing within academic limits."
+          actions={<Badge tone="success">Guardrails</Badge>}
+        >
+          <ul className="space-y-2 text-sm text-zinc-300">
+            <li>• Abstract word limit checks.</li>
+            <li>• Passive voice warnings.</li>
+            <li>• Section completeness status.</li>
+          </ul>
         </SectionCard>
       </section>
 

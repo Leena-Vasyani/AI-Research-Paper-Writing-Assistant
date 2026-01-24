@@ -31,6 +31,21 @@ const agents = [
   },
 ];
 
+const tools = [
+  {
+    title: "Smart Drafter",
+    description:
+      "A block-based writing workspace for assembling research papers with AI-assisted refinement.",
+    features: [
+      "Block-based editing with drag-and-drop sections",
+      "AI expand & refine for rough notes",
+      "Interactive citation chips with quick context",
+      "One-click LaTeX/Word export",
+      "Live quality constraints (word limits, voice checks)",
+    ],
+  },
+];
+
 export default function HowItWorksPage() {
   return (
     <div className="space-y-8 px-2 md:px-4">
@@ -80,6 +95,29 @@ export default function HowItWorksPage() {
               <div className="mt-3 text-xs text-zinc-500">
                 Output: {agent.output}
               </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">Tools</h2>
+        <div className="grid gap-4">
+          {tools.map((tool) => (
+            <div
+              key={tool.title}
+              className="rounded-2xl bg-zinc-900 p-5 shadow"
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold">{tool.title}</div>
+                <Badge tone="info">New</Badge>
+              </div>
+              <p className="mt-2 text-sm text-zinc-400">{tool.description}</p>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-300">
+                {tool.features.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
             </div>
           ))}
         </div>

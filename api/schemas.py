@@ -40,3 +40,8 @@ class PlagiarismRequest(BaseModel):
     generated_draft: Dict[str, str]
     source_papers: List[Dict[str, Any]]
     research_topic: str
+
+
+class RefineBlockRequest(BaseModel):
+    text: str = Field(..., description="Block text to refine")
+    mode: str = Field("refine", description="expand|academic|refine")

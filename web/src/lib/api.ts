@@ -67,4 +67,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  refineBlock: (payload: {
+    text: string;
+    mode: "expand" | "academic" | "refine";
+  }) =>
+    request<{ refined_text: string; provider: string }>("/api/refine-block", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

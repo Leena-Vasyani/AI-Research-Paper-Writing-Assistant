@@ -5,6 +5,7 @@ import SidebarNav from "@/components/SidebarNav";
 const mobileNav = [
   { href: "/", label: "Home" },
   { href: "/how-it-works", label: "How" },
+  { href: "/smart-drafter", label: "Drafter" },
   { href: "/workflow", label: "Workflow" },
   { href: "/about", label: "About" },
 ];
