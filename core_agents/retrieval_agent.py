@@ -29,20 +29,38 @@ class PaperRetrievalAgent:
     def calculate_relevance_score(self, paper: Dict, keywords: List[str]) -> float:
         """
         Calculate relevance score based on keyword matches
+        More flexible matching for multi-word keywords
         """
         title_lower = paper['title'].lower()
         abstract_lower = paper['abstract'].lower()
         
         score = 0.0
+        max_score = 0
+        
         for keyword in keywords:
             kw_lower = keyword.lower()
+            max_score += 0.5
+            
+            # Exact match in title (highest score)
             if kw_lower in title_lower:
-                score += 0.3
+                score += 0.5
+            # Also check individual words if it's a multi-word keyword
+            elif ' ' in kw_lower:
+                words = kw_lower.split()
+                word_matches = sum(1 for w in words if w in title_lower)
+                if word_matches >= len(words) - 1:  # At least n-1 words match
+                    score += 0.3
+            
+            # Abstract match (lower score)
             if kw_lower in abstract_lower:
-                score += 0.1
+                score += 0.2
+            elif ' ' in kw_lower:
+                words = kw_lower.split()
+                word_matches = sum(1 for w in words if w in abstract_lower)
+                if word_matches >= len(words) - 1:
+                    score += 0.1
         
         # Normalize to 0-1 range
-        max_score = len(keywords) * 0.4
         return min(score / max_score, 1.0) if max_score > 0 else 0.5
     
     def is_recent_paper(self, published_date: str) -> bool:
@@ -68,21 +86,28 @@ class PaperRetrievalAgent:
             List of paper dictionaries with metadata and content
         """
         
+        print(f"🔍 DEBUG Retrieval - Input keywords: {keywords}")
+        
         # Build search query
         search_query = self.build_search_query(keywords)
+        print(f"🔍 DEBUG Retrieval - Built search query: {search_query}")
         
         # Create search - retrieve more initially to account for filtering
         search = arxiv.Search(
             query=search_query,
-            max_results=max_results * 3,  # Retrieve 3x to account for filtering
+            max_results=max_results * 5,  # Retrieve 5x to account for filtering
             sort_by=arxiv.SortCriterion.Relevance,
             sort_order=arxiv.SortOrder.Descending
         )
         
         papers = []
+        processed_count = 0
         
         try:
             for result in self.client.results(search):
+                processed_count += 1
+                print(f"🔍 DEBUG Retrieval - Processing result {processed_count}: {result.title[:60]}...")
+                
                 # Create paper dict first
                 paper = {
                     "title": result.title,
@@ -101,22 +126,34 @@ class PaperRetrievalAgent:
                 # Calculate relevance score
                 relevance_score = self.calculate_relevance_score(paper, keywords)
                 paper['relevance_score'] = relevance_score
+                print(f"   Relevance: {relevance_score:.1%}, Date: {paper['published']}")
                 
-                # Filter by relevance score and date
-                if relevance_score >= self.min_relevance_score and self.is_recent_paper(paper['published']):
+                # Filter by date first (more lenient)
+                if not self.is_recent_paper(paper['published']):
+                    print(f"   ❌ Filtered: Date too old")
+                    continue
+                
+                # For relevance, be more lenient on initial retrieval
+                # Accept papers with relevance > 50% since we're being strict about keywords
+                if relevance_score >= 0.5:
                     papers.append(paper)
+                    print(f"   ✅ Added to results")
                     
                     # Stop when we have enough papers
                     if len(papers) >= max_results:
                         break
+                else:
+                    print(f"   ❌ Filtered: Relevance too low")
                 
                 # Small delay to respect API limits
                 time.sleep(0.5)
         
         except Exception as e:
-            print(f"Error retrieving papers: {e}")
-            raise
+            print(f"⚠️ Error retrieving papers: {e}")
+            import traceback
+            traceback.print_exc()
         
+        print(f"🔍 DEBUG Retrieval - Total papers found: {len(papers)}")
         return papers
     
     def retrieve_papers_multi_query(self, keywords: List[str], 
