@@ -34,6 +34,7 @@ class ScientificQueryAgent:
             List of extracted keywords
         """
         try:
+            # First attempt with full parameters
             keywords = self.kw_model.extract_keywords(
                 text,
                 keyphrase_ngram_range=(1, 3),  # single to 3-word phrases
@@ -43,12 +44,64 @@ class ScientificQueryAgent:
                 nr_candidates=20,
                 diversity=0.7  # Increase diversity of keywords
             )
-            return [kw for kw, score in keywords]
+            print(f"🔍 DEBUG - Raw keywords extracted (attempt 1): {keywords}")
+            
+            # If empty, try with lower nr_candidates
+            if not keywords:
+                print(f"⚠️ No keywords found with nr_candidates=20, trying with nr_candidates=10")
+                keywords = self.kw_model.extract_keywords(
+                    text,
+                    keyphrase_ngram_range=(1, 3),
+                    stop_words='english',
+                    top_n=top_n,
+                    use_maxsum=True,
+                    nr_candidates=10,
+                    diversity=0.7
+                )
+                print(f"🔍 DEBUG - Raw keywords extracted (attempt 2): {keywords}")
+            
+            # If still empty, try without use_maxsum
+            if not keywords:
+                print(f"⚠️ Still no keywords, trying without use_maxsum")
+                keywords = self.kw_model.extract_keywords(
+                    text,
+                    keyphrase_ngram_range=(1, 3),
+                    stop_words='english',
+                    top_n=top_n,
+                    use_maxsum=False,
+                    diversity=0.5
+                )
+                print(f"🔍 DEBUG - Raw keywords extracted (attempt 3): {keywords}")
+            
+            extracted = [kw for kw, score in keywords]
+            print(f"🔍 DEBUG - Raw extracted keywords with scores: {keywords}")
+            
+            # Filter out redundant/subset keywords and very generic ones
+            if extracted:
+                # Remove single generic words if we have multi-word phrases
+                has_multi_word = any(' ' in kw for kw in extracted)
+                if has_multi_word:
+                    filtered = [kw for kw in extracted if ' ' in kw or len(kw) > 4]
+                else:
+                    filtered = extracted
+                
+                # If filtering removed too many, keep at least top keywords by score
+                if not filtered:
+                    filtered = [kw for kw, score in keywords[:top_n]]
+                
+                extracted = filtered
+            
+            print(f"🔍 DEBUG - Processed keywords (filtered): {extracted}")
+            return extracted
         except Exception as e:
             print(f"⚠️ Error extracting keywords: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback: simple word extraction
             words = text.lower().split()
-            return list(set(words))[:top_n]
+            result = list(set(words))[:top_n]
+            print(f"🔍 DEBUG - Fallback keywords: {result}")
+            return result
 
     def expand_keywords(self, keywords: List[str], top_n: int = 3) -> Dict[str, List[str]]:
         """
@@ -61,8 +114,12 @@ class ScientificQueryAgent:
         Returns:
             Dictionary mapping each keyword to related concepts
         """
+        print(f"🔍 DEBUG - expand_keywords input: {keywords}, length: {len(keywords)}")
+        
         if not keywords or len(keywords) < 2:
-            return {kw: [] for kw in keywords}
+            result = {kw: [] for kw in keywords}
+            print(f"🔍 DEBUG - Keywords too few, returning empty subtopics: {result}")
+            return result
 
         try:
             embeddings = self.model.encode(keywords)
@@ -75,9 +132,12 @@ class ScientificQueryAgent:
                 related_idx = np.argsort(sims)[::-1][1:top_n+1]
                 subtopics[kw] = [keywords[i] for i in related_idx if i < len(keywords)]
             
+            print(f"🔍 DEBUG - Expanded subtopics: {subtopics}")
             return subtopics
         except Exception as e:
             print(f"⚠️ Error expanding keywords: {e}")
+            import traceback
+            traceback.print_exc()
             return {kw: keywords[:top_n] for kw in keywords}
 
     def analyze_topic_complexity(self, text: str) -> Dict[str, any]:
@@ -112,11 +172,11 @@ class ScientificQueryAgent:
         
         # Extract keywords
         keywords = self.extract_keywords(text, top_n=top_keywords)
-        print(f"✅ Extracted {len(keywords)} keywords")
+        print(f"✅ Extracted {len(keywords)} keywords: {keywords}")
         
         # Expand to subtopics
         subtopics = self.expand_keywords(keywords, top_n=3)
-        print(f"✅ Mapped {len(subtopics)} subtopics")
+        print(f"✅ Mapped subtopics: {subtopics}")
         
         # Analyze complexity
         complexity = self.analyze_topic_complexity(text)
@@ -133,21 +193,26 @@ class ScientificQueryAgent:
 if __name__ == "__main__":
     agent = ScientificQueryAgent()
     
-    # Test with sample topic
-    test_topic = "Applications of Large Language Models in Healthcare Diagnostics"
+    # Test with multiple topics
+    test_topics = [
+        "Applications of LLM in Healthcare",
+        "Applications of Large Language Models in Healthcare Diagnostics",
+        "deep learning for stock market prediction"
+    ]
     
-    print("\n" + "="*60)
-    result = agent.run(test_topic, top_keywords=8)
-    
-    print("\n📋 Query Analysis Results:")
-    print(f"Topic: {result['original_topic']}")
-    print(f"\n🔑 Keywords ({len(result['keywords'])}):")
-    for i, kw in enumerate(result['keywords'], 1):
-        print(f"  {i}. {kw}")
-    
-    print(f"\n🗺️ Subtopics:")
-    for main, subs in list(result['subtopics'].items())[:3]:
-        print(f"  {main}: {', '.join(subs)}")
-    
-    print(f"\n📊 Complexity: {result['complexity_analysis']['estimated_complexity']}")
-    print(f"   Recommended papers: {result['complexity_analysis']['recommended_papers']}")
+    for test_topic in test_topics:
+        print("\n" + "="*60)
+        result = agent.run(test_topic, top_keywords=8)
+        
+        print("\n📋 Query Analysis Results:")
+        print(f"Topic: {result['original_topic']}")
+        print(f"\n🔑 Keywords ({len(result['keywords'])}):")
+        for i, kw in enumerate(result['keywords'], 1):
+            print(f"  {i}. {kw}")
+        
+        print(f"\n🗺️ Subtopics:")
+        for main, subs in list(result['subtopics'].items())[:3]:
+            print(f"  {main}: {', '.join(subs)}")
+        
+        print(f"\n📊 Complexity: {result['complexity_analysis']['estimated_complexity']}")
+        print(f"   Recommended papers: {result['complexity_analysis']['recommended_papers']}")
