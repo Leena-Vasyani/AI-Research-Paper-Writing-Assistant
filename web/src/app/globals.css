@@ -24,3 +24,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+.spell-underline {
+  text-decoration: underline wavy #f87171;
+  text-decoration-thickness: 1.5px;
+}

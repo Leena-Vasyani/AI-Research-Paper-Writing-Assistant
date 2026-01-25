@@ -26,3 +26,11 @@ export type PlagiarismReport = {
   overall_message?: string;
   [key: string]: unknown;
 };
+
+export type DiagramResult = {
+  success: boolean;
+  mermaid_code: string;
+  provider: string;
+  diagram_type: string;
+  error?: string;
+};

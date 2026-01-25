@@ -2,10 +2,10 @@ import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
 
 const team = [
-  { name: "Aarav Mehta", role: "AI Research Lead" },
-  { name: "Leena Vasyani", role: "Product & UX" },
-  { name: "Sana Qureshi", role: "Frontend Engineer" },
-  { name: "Karan Patel", role: "Backend Engineer" },
+  { name: "Namit Gandhi", role: "AI and backend " },
+  { name: "Leena Vasyani", role: "backend & UX" },
+  { name: "Varun Vishe", role: "Frontend Engineer" },
+  { name: "Abhishek Goud", role: "Ai And Backend Engineer" },
 ];
 
 export default function AboutPage() {
