@@ -166,13 +166,23 @@ class ContentCleaner:
         return '\n'.join(cleaned_lines)
     
     @staticmethod
-    def validate_academic_content(text: str) -> Tuple[bool, List[str]]:
-        """Validate that text contains proper academic content"""
+    def validate_academic_content(text: str, expected_topic: str = None) -> Tuple[bool, List[str]]:
+        """Validate that text contains proper academic content and matches topic"""
         issues = []
         
-        if not text or len(text.strip()) < 50:
-            issues.append("Content too short")
+        if not text or len(text.strip()) < 100:
+            issues.append("Content too short (minimum 100 characters)")
             return False, issues
+        
+        # Check for topic relevance if expected_topic provided
+        if expected_topic:
+            topic_words = set(expected_topic.lower().split())
+            text_lower = text.lower()
+            
+            # Check if at least some key words from topic appear
+            matching_words = [w for w in topic_words if w in text_lower and len(w) > 3]
+            if len(matching_words) == 0:
+                issues.append(f"Content doesn't mention key topic: {expected_topic}")
         
         # Check for inappropriate content
         inappropriate_patterns = [
@@ -249,61 +259,97 @@ class FineTunedDraftingAgent:  # Changed back to original class name for Streaml
     def _create_clean_prompt(self, section_type: str, research_topic: str, 
                             paper_summaries: Dict, key_terms: List[str]) -> str:
         """
-        Create clean prompt that avoids problematic patterns
+        Create clean prompt that is specific to the research topic and avoids problematic patterns
         """
         
         # Extract only essential information
-        exec_summary = paper_summaries.get('executive_summary', '')[:300]
+        exec_summary = paper_summaries.get('executive_summary', '')[:400]
         insights = paper_summaries.get('key_insights', {})
         gaps = paper_summaries.get('research_gaps', [])
         
-        # Clean insights
-        methods = insights.get('methodological_approaches', ['deep learning approaches'])[:3]
-        findings = insights.get('major_findings', ['improved prediction accuracy'])[:3]
+        # Clean insights - focus on relevant ones
+        methods = insights.get('methodological_approaches', [])[:3]
+        findings = insights.get('major_findings', [])[:3]
         
-        # Clean, direct prompts
-        prompts = {
-            "abstract": f"""Write a research abstract about: {research_topic}
+        # Build topic-specific prompts
+        if section_type == "abstract":
+            prompt = f"""Write a 150-200 word research abstract for: {research_topic}
 
-Background: {exec_summary}
+Key aspects:
+- Research focus: {research_topic}
+- Main approaches: {', '.join(methods) if methods else 'novel techniques'}
+- Significant results: {', '.join(findings) if findings else 'meaningful contributions'}
+- Research challenges: {', '.join(gaps[:2]) if gaps else 'important open problems'}
 
-Methods used in this field: {', '.join(methods)}
+Requirements:
+1. Start with the research problem or motivation
+2. Describe the methodology or approach used
+3. Summarize the key results or findings
+4. State implications and importance
+5. Use clear, academic language
+6. Do NOT copy from existing work
 
-Key findings: {', '.join(findings)}
-
-Research gaps: {', '.join(gaps[:3]) if gaps else 'Several challenges remain'}
-
-Write a clear abstract that describes the research problem, methodology, findings, and implications.""",
-            
-            "introduction": f"""Write an introduction for a research paper about: {research_topic}
-
-Research context: {exec_summary}
-
-Current methods: {', '.join(methods)}
-
-Existing challenges: {', '.join(gaps[:3]) if gaps else 'Various limitations exist'}
-
-Write an introduction that provides background, states the research problem, and outlines the paper's objectives.""",
-            
-            "related_work": f"""Write a related work section for a paper about: {research_topic}
-
-Field overview: {exec_summary}
-
-Common approaches: {', '.join(methods)}
-
-Key developments: {', '.join(findings)}
-
-Write a literature review that summarizes existing research and identifies gaps."""
-        }
+Write the abstract:"""
         
-        return prompts.get(section_type, f"Write about {research_topic}")
+        elif section_type == "introduction":
+            prompt = f"""Write an introduction section (300-400 words) for a research paper on: {research_topic}
+
+Context:
+{exec_summary}
+
+Key research directions: {', '.join(methods) if methods else 'emerging approaches'}
+
+Current challenges: {', '.join(gaps[:3]) if gaps else 'several important limitations'}
+
+Requirements:
+1. Begin with background and motivation for {research_topic}
+2. Discuss why this research area is important
+3. Identify the research gap or problem being addressed
+4. State the research objectives or questions
+5. Outline the paper structure
+6. Use original phrasing and analysis
+7. Do NOT copy from sources
+
+Write the introduction:"""
+        
+        elif section_type == "related_work":
+            prompt = f"""Write a related work section (400-500 words) surveying research on: {research_topic}
+
+Field overview:
+{exec_summary}
+
+Main research approaches: {', '.join(methods) if methods else 'various methodologies'}
+
+Key developments: {', '.join(findings) if findings else 'recent advances'}
+
+Research gaps to address: {', '.join(gaps[:3]) if gaps else 'unresolved questions'}
+
+Requirements:
+1. Organize by themes or research approaches
+2. Discuss major studies and their contributions
+3. Compare different methodologies and results
+4. Identify strengths and limitations of existing work
+5. Highlight gaps between current research and needs
+6. Synthesize ideas rather than listing papers
+7. Use original analysis and connections
+8. Do NOT copy sentences from papers
+
+Write the related work section:"""
+        
+        else:
+            prompt = f"Write about {research_topic} using the following information:\n{exec_summary}\n\nApproaches: {', '.join(methods)}\nKey findings: {', '.join(findings)}"
+        
+        return prompt
     
-    def _generate_with_retry(self, prompt: str, max_retries: int = 2) -> str:
-        """Generate with retry and validation"""
+    def _generate_with_retry(self, prompt: str, research_topic: str = None, max_retries: int = 3) -> str:
+        """Generate with retry and validation - use model output first"""
         for attempt in range(max_retries):
             try:
                 if self.model is None:
+                    print("   ⚠️ Model not loaded")
                     return ""
+                
+                print(f"   📝 Attempt {attempt + 1}: Sending prompt to model...")
                 
                 inputs = self.tokenizer(
                     prompt, 
@@ -326,70 +372,97 @@ Write a literature review that summarizes existing research and identifies gaps.
                     )
                 
                 generated = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                print(f"   ✍️ Raw model output length: {len(generated)} chars")
+                print(f"   📄 First 100 chars: {generated[:100]}")
                 
-                # Remove prompt if included
-                if generated.startswith(prompt[:100]):
-                    generated = generated[len(prompt):]
+                # Aggressively remove prompt text that appears in output
+                generated = generated.strip()
+                
+                # Remove prompt text patterns
+                prompt_removal_patterns = [
+                    r'^.*?(?:Write a|Write an|Write the)\s+(?:research\s+)?(?:abstract|introduction|section|related\s+work)',
+                    r'^.*?(?:Key aspects|Context|Requirements|Field overview|Main research).*?:',
+                    r'^\(?\d+-\d+\s+words?\)?.*?(?:\n|$)',
+                    r'^.*?(?:Write|Describe|Explain|Provide|Discuss)\s+(?:a|an|the).*?:',
+                ]
+                
+                for pattern in prompt_removal_patterns:
+                    before_len = len(generated)
+                    generated = re.sub(pattern, '', generated, flags=re.IGNORECASE | re.MULTILINE).strip()
+                    if len(generated) < before_len:
+                        print(f"   🔧 Removed prompt pattern, new length: {len(generated)}")
                 
                 # Clean the content
                 cleaned = self.cleaner.clean_content(generated)
+                print(f"   🧹 Cleaned output length: {len(cleaned)} chars")
                 
-                # Validate
-                is_valid, issues = self.cleaner.validate_academic_content(cleaned)
+                # More lenient validation - check only critical issues
+                if cleaned and len(cleaned.strip()) >= 80:  # Lower minimum threshold
+                    # Check for critical issues only
+                    has_prices = bool(re.search(r'\$\d+', cleaned))
+                    has_emails = bool(re.search(r'\b[\w.-]+@[\w.-]+\.\w+\b', cleaned))
+                    has_copyright = 'copyright' in cleaned.lower()
+                    
+                    critical_issues = has_prices or has_emails or has_copyright
+                    
+                    if not critical_issues:
+                        word_count = len(cleaned.split())
+                        print(f"   ✅ USING MODEL OUTPUT - {word_count} words")
+                        return cleaned
+                    else:
+                        print(f"   ⚠️ Critical issues found (prices/emails/copyright)")
                 
-                if is_valid:
-                    return cleaned
-                else:
-                    print(f"   ⚠️ Attempt {attempt + 1}: Content issues: {issues}")
-                    # Adjust temperature for retry
-                    self.config.temperature = min(0.95, self.config.temperature + 0.1)
+                print(f"   ⚠️ Attempt {attempt + 1}: Content too short or invalid")
+                # Adjust temperature for retry
+                self.config.temperature = min(0.95, self.config.temperature + 0.1)
                     
             except Exception as e:
                 print(f"   ⚠️ Generation error on attempt {attempt + 1}: {e}")
         
+        print(f"   ❌ All generation attempts failed, USING FALLBACK")
         return ""  # Return empty if all attempts fail
     
     def _get_valid_fallback(self, section_type: str, research_topic: str, 
                            paper_summaries: Dict) -> str:
-        """Provide valid fallback content"""
-        insights = paper_summaries.get('key_insights', {})
-        methods = insights.get('methodological_approaches', ['advanced computational methods'])
-        findings = insights.get('major_findings', ['significant improvements in prediction'])
-        gaps = paper_summaries.get('research_gaps', ['need for more robust models'])
+        """Provide valid fallback content - purely topic-based, no domain contamination"""
         
         if section_type == "abstract":
-            return f"""This paper investigates the application of deep learning techniques to stock market prediction, a domain characterized by complex temporal patterns and high volatility. We analyze various architectures including recurrent neural networks, convolutional networks, and hybrid models. Our analysis demonstrates that these approaches offer superior performance compared to traditional statistical methods, particularly in capturing nonlinear relationships and long-term dependencies. However, challenges remain in model interpretability and handling extreme market conditions. This research contributes to advancing predictive analytics in finance through improved modeling approaches."""
+            return f"""This paper presents a comprehensive investigation of {research_topic}. We conduct a detailed analysis of current methodologies and their applications in this domain. Contemporary approaches demonstrate significant improvements over previous methods. However, several important challenges remain that require further investigation. This research contributes by synthesizing current knowledge and proposing directions for future development."""
         
         elif section_type == "introduction":
-            return f"""Stock market prediction represents a significant challenge in financial analytics due to market complexity and numerous influencing factors. Traditional approaches often fail to capture the intricate patterns present in financial time series. Recent advances in deep learning provide promising alternatives, with architectures like LSTM networks showing particular effectiveness. This paper examines current methodologies, identifies limitations, and proposes directions for future research. We aim to provide a comprehensive overview while highlighting opportunities for innovation in this rapidly evolving field."""
+            return f"""Research on {research_topic} has received considerable attention due to its practical importance and theoretical significance. The field encompasses multiple methodological approaches, each with distinct strengths and limitations. Current work has made meaningful progress, though important challenges persist. This paper provides a comprehensive overview of the field, identifies key research gaps, and proposes promising directions for advancement. We examine how recent developments can address existing limitations."""
         
         elif section_type == "related_work":
-            return f"""Research on stock market prediction has evolved from statistical models to sophisticated machine learning approaches. Early work focused on time series analysis and econometric models. More recent research leverages deep learning architectures, with recurrent neural networks demonstrating strong performance for sequential data. Various hybrid approaches combining different network types have shown promising results. Despite progress, challenges remain in model robustness, interpretability, and real-world deployment. This review synthesizes key developments and identifies areas requiring further investigation."""
+            return f"""The field of {research_topic} has evolved substantially over recent years. Early foundational work established core concepts and fundamental principles. Subsequent research has introduced increasingly sophisticated methodologies and advanced techniques. Empirical studies demonstrate that contemporary approaches yield meaningful improvements compared to classical methods. Despite considerable progress in the field, significant challenges remain with respect to scalability, efficiency, and practical implementation in real-world scenarios. This survey synthesizes the major developments and research trends, identifies promising areas for future investigation, and discusses critical gaps that warrant further exploration."""
         
-        return f"Discussion of {research_topic}."
+        return f"Research on {research_topic}."
     
     def generate_section(self, section_type: str, research_topic: str, 
                         paper_summaries: Dict, key_terms: List[str]) -> str:
-        """Generate a clean, valid section"""
-        print(f"   Generating {section_type}...")
+        """Generate a clean, valid section that matches the research topic"""
+        print(f"\n   🎯 Generating {section_type.upper()}...")
         
         # Create clean prompt
         prompt = self._create_clean_prompt(section_type, research_topic, paper_summaries, key_terms)
         
-        # Generate with retry
-        content = self._generate_with_retry(prompt)
+        # Generate with retry (pass research_topic for validation)
+        content = self._generate_with_retry(prompt, research_topic=research_topic)
         
         # Check if valid
         if content:
-            is_valid, issues = self.cleaner.validate_academic_content(content)
+            is_valid, issues = self.cleaner.validate_academic_content(content, expected_topic=research_topic)
             if is_valid:
                 word_count = len(content.split())
-                print(f"   ✅ Generated {word_count} valid words")
+                print(f"   ✅ MODEL GENERATED {word_count} valid words for {section_type}")
                 return content
+            else:
+                print(f"   ⚠️ Model output failed validation: {issues}")
         
         # Use fallback
-        print(f"   ⚠️ Using fallback for {section_type}")
-        return self._get_valid_fallback(section_type, research_topic, paper_summaries)
+        fallback = self._get_valid_fallback(section_type, research_topic, paper_summaries)
+        fallback_words = len(fallback.split())
+        print(f"   ⚠️ USING FALLBACK - {fallback_words} words for {section_type}")
+        return fallback
     
     def generate_complete_draft(self, research_topic: str, 
                                paper_summaries: Dict, 
