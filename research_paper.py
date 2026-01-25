@@ -9,6 +9,7 @@ from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
 from core_agents.training_data_manager import TrainingDataManager
 from core_agents.plagiarism_agent import PlagiarismDetectionAgent
+from core_agents.citation_agent import CitationAgent
 from fine_tuning.drafting_agent_trainer import auto_train_if_ready
 from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
@@ -89,6 +90,7 @@ class ResearchPaperGeneratorUI:
         self.summarization_agent = PaperSummarizationAgent()
         self.data_manager = TrainingDataManager()
         self.plagiarism_agent = PlagiarismDetectionAgent()
+        self.citation_agent = CitationAgent()
         load_css()
         
     def setup_sidebar(self):
@@ -106,7 +108,7 @@ class ResearchPaperGeneratorUI:
             page = st.radio(
                 "Navigation",
                 ["🏠 Dashboard", "🎯 Topic Analysis", "🔍 Paper Retrieval", 
-                 "📊 Summary Analysis", "✍️ Draft Generation", "� Plagiarism Check", "�📁 Output Management"],
+                 "📊 Summary Analysis", "✍️ Draft Generation", "🔎 Plagiarism Check", "📚 Apply Citations", "📁 Output Management"],
                 label_visibility="collapsed"
             )
             
@@ -839,6 +841,161 @@ class ResearchPaperGeneratorUI:
             )
             
             st.success("✅ Review flagged sections and apply suggested changes to reduce plagiarism!")
+            
+            st.info("💡 **Next Step**: Navigate to **📚 Apply Citations** to automatically cite plagiarized sentences →")
+    
+    def apply_citations_page(self):
+        st.markdown('<div class="main-header">📚 Apply Citations</div>', unsafe_allow_html=True)
+        
+        if not hasattr(st.session_state, 'plagiarism_report'):
+            st.warning("⚠️ Run plagiarism check first!")
+            return
+        
+        if not hasattr(st.session_state, 'generated_draft'):
+            st.warning("⚠️ Generate a draft first!")
+            return
+        
+        st.markdown("### 🔗 Add Citations to Plagiarized Content")
+        
+        st.info("""
+        **How Citations Solve Plagiarism:**
+        - Automatically cites flagged sentences from source papers
+        - Transforms plagiarism → Proper attribution
+        - Uses retrieved papers to create accurate citations
+        - Supports APA, IEEE, and MLA formats
+        """)
+        
+        # Citation style selection
+        with st.expander("⚙️ Citation Settings", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                citation_style = st.selectbox(
+                    "Citation Style",
+                    ["APA", "IEEE", "MLA"],
+                    index=0,
+                    key="citation_style"
+                ).lower()
+            with col2:
+                auto_cite_all = st.checkbox(
+                    "Auto-cite all flagged sentences",
+                    value=True,
+                    help="If unchecked, will only cite high-similarity content"
+                )
+        
+        if st.button("🔗 Apply Citations", use_container_width=True, type="primary"):
+            with st.spinner("🔗 Adding citations to flagged sentences..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    status_text.text("📝 Processing draft sections...")
+                    progress_bar.progress(20)
+                    
+                    # Apply citations with plagiarism awareness
+                    citation_result = self.citation_agent.add_citations_to_draft(
+                        draft_sections=st.session_state.generated_draft,
+                        retrieved_papers=st.session_state.retrieved_papers,
+                        plagiarism_results=st.session_state.plagiarism_report,
+                        citation_style=citation_style
+                    )
+                    
+                    progress_bar.progress(70)
+                    status_text.text("✨ Formatting final document...")
+                    
+                    st.session_state.cited_draft = citation_result["cited_draft"]
+                    st.session_state.citation_data = citation_result
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Complete!")
+                    
+                    st.success("✅ Citations applied successfully!")
+                    
+                except Exception as e:
+                    st.error(f"Citation error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+        
+        # Display cited draft
+        if hasattr(st.session_state, 'cited_draft'):
+            citation_data = st.session_state.citation_data
+            
+            st.markdown("---")
+            st.markdown("### 📝 Cited Draft")
+            
+            # Citation summary
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Citations Added", citation_data["citations_added"])
+            with col2:
+                st.metric("Plagiarism Citations", citation_data["plagiarism_citations"])
+            with col3:
+                st.metric("Unique Papers", len(set(ref['paper_info']['title'] for ref in citation_data["references"])))
+            
+            st.markdown("")
+            
+            # Display sections with citations
+            cited_draft = st.session_state.cited_draft
+            
+            tab1, tab2, tab3, tab4 = st.tabs(["Abstract", "Introduction", "Related Work", "References"])
+            
+            with tab1:
+                st.write(cited_draft["abstract"])
+                st.caption(f"{len(cited_draft['abstract'].split())} words")
+            
+            with tab2:
+                st.write(cited_draft["introduction"])
+                st.caption(f"{len(cited_draft['introduction'].split())} words")
+            
+            with tab3:
+                st.write(cited_draft["related_work"])
+                st.caption(f"{len(cited_draft['related_work'].split())} words")
+            
+            with tab4:
+                st.markdown(cited_draft["references"])
+            
+            # Citation details
+            st.markdown("---")
+            st.markdown("### 📚 Citation Details")
+            
+            with st.expander("View all citations", expanded=False):
+                for i, ref in enumerate(citation_data["references"], 1):
+                    st.markdown(f"**[{i}] {ref['paper_info']['title']}**")
+                    st.write(f"Authors: {ref['paper_info']['authors']}")
+                    st.write(f"Year: {ref['paper_info']['year']}")
+                    st.write(f"Citation: {ref['reference']}")
+                    st.divider()
+            
+            # Download
+            st.markdown("---")
+            
+            full_cited_content = f"""RESEARCH PAPER (WITH CITATIONS)
+    Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}
+    Topic: {st.session_state.research_topic}
+    Model: {"Fine-tuned AI" if st.session_state.get('used_fine_tuned') else "Base AI"}
+    Citations: {citation_data['citations_added']}
+
+    ABSTRACT
+    {cited_draft['abstract']}
+
+    INTRODUCTION
+    {cited_draft['introduction']}
+
+    RELATED WORK
+    {cited_draft['related_work']}
+
+    REFERENCES
+    {cited_draft['references']}
+    """
+            
+            st.download_button(
+                "📥 Download Cited Draft",
+                data=full_cited_content,
+                file_name=f"cited_draft_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            
+            st.success("✅ Draft is now properly cited! You can download it or export from Output Management.")
     
     def output_management_page(self):
         st.markdown('<div class="main-header">📁 Output Management</div>', unsafe_allow_html=True)
@@ -857,7 +1014,7 @@ class ResearchPaperGeneratorUI:
         # Exports
         st.markdown("### 📤 Export Data")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             if st.session_state.get('generated_draft'):
@@ -870,6 +1027,18 @@ class ResearchPaperGeneratorUI:
                 )
             else:
                 st.button("📄 Draft", disabled=True, use_container_width=True)
+        
+        with col4:
+            if st.session_state.get('cited_draft'):
+                cited_content = f"""CITED DRAFT\n\n{st.session_state.cited_draft['abstract']}\n\n{st.session_state.cited_draft['introduction']}\n\n{st.session_state.cited_draft['related_work']}\n\nREFERENCES\n{st.session_state.cited_draft['references']}"""
+                st.download_button(
+                    "📚 Cited Draft",
+                    data=cited_content,
+                    file_name="cited_draft.txt",
+                    use_container_width=True
+                )
+            else:
+                st.button("📚 Cited Draft", disabled=True, use_container_width=True)
         
         with col2:
             if st.session_state.get('query_result'):
@@ -936,9 +1105,11 @@ class ResearchPaperGeneratorUI:
             self.summary_analysis_page()
         elif page == "✍️ Draft Generation":
             self.draft_generation_page()
-        elif page == "� Plagiarism Check":
+        elif page == "🔎 Plagiarism Check":
             self.plagiarism_check_page()
-        elif page == "�📁 Output Management":
+        elif page == "📚 Apply Citations":
+            self.apply_citations_page()
+        elif page == "📁 Output Management":
             self.output_management_page()
 
 # Run the application
