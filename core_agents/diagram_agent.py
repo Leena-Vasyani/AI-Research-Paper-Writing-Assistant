@@ -1,6 +1,9 @@
 import os
 from typing import Dict, Any, Optional
-import google.generativeai as genai
+try:
+    from google import genai
+except ImportError:
+    genai = None
 try:
     from groq import Groq
 except ImportError:
@@ -16,20 +19,28 @@ class DiagramAgent:
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
         
-        if self.gemini_api_key:
-            genai.configure(api_key=self.gemini_api_key)
-            self.gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        if self.gemini_api_key and genai is not None:
+            try:
+                self.gemini_client = genai.Client(api_key=self.gemini_api_key)
+                self.gemini_model_name = "gemini-2.0-flash-exp"
+            except Exception as e:
+                print(f"⚠️ Gemini init failed: {e}")
+                self.gemini_client = None
+                self.gemini_model_name = None
         else:
-            self.gemini_model = None
-            print("⚠️ GEMINI_API_KEY not found. Diagram generation might fail if Groq is also unavailable.")
+            self.gemini_client = None
+            self.gemini_model_name = None
+            if not self.gemini_api_key:
+                print("⚠️ GEMINI_API_KEY not found. Diagram generation might fail if Groq is also unavailable.")
 
     def _generate_with_gemini(self, prompt: str) -> Optional[str]:
-        if not self.gemini_model:
+        if not self.gemini_client or not self.gemini_model_name:
             return None
         try:
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config={
+            response = self.gemini_client.models.generate_content(
+                model=self.gemini_model_name,
+                contents=prompt,
+                config={
                     "temperature": 0.2,
                     "top_p": 0.9,
                     "max_output_tokens": 2048,

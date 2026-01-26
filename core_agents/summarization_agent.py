@@ -22,7 +22,7 @@ except Exception:
     Groq = None
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except Exception:
     genai = None
 
@@ -65,7 +65,8 @@ class PaperSummarizationAgent:
         self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.groq_client = None
-        self.gemini_model = None
+        self.gemini_client = None
+        self.gemini_model_name = None
 
         self._init_api_clients()
         
@@ -126,13 +127,17 @@ class PaperSummarizationAgent:
 
         if self.gemini_api_key and genai is not None:
             try:
-                genai.configure(api_key=self.gemini_api_key)
-                self.gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+                self.gemini_client = genai.Client(api_key=self.gemini_api_key)
+                self.gemini_model_name = "gemini-2.0-flash-exp"
                 print("✅ Gemini client ready")
             except Exception as e:
                 print(f"⚠️ Gemini init failed: {e}")
+                self.gemini_client = None
+                self.gemini_model_name = None
         elif self.gemini_api_key and genai is None:
-            print("⚠️ google-generativeai not installed; run pip install google-generativeai")
+            print("⚠️ google-genai not installed; run pip install google-genai")
+        else:
+            print("ℹ️ Gemini client not configured (no API key)")
     
     def extract_text_from_pdf(self, pdf_url: str, max_pages: int = 30) -> str:
         """
@@ -317,12 +322,13 @@ class PaperSummarizationAgent:
             return None
 
     def _summarize_with_gemini(self, prompt: str, max_tokens: int) -> Optional[str]:
-        if not self.gemini_model:
+        if not self.gemini_client or not self.gemini_model_name:
             return None
         try:
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config={
+            response = self.gemini_client.models.generate_content(
+                model=self.gemini_model_name,
+                contents=prompt,
+                config={
                     "temperature": 0.0,
                     "top_p": 0.1,
                     "max_output_tokens": max_tokens

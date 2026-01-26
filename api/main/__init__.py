@@ -9,7 +9,7 @@ except Exception:
     Groq = None
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except Exception:
     genai = None
 
@@ -76,11 +76,15 @@ def _refine_with_gemini(prompt: str) -> str | None:
     if not api_key or genai is None:
         return None
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(
-            prompt,
-            generation_config={"temperature": 0.3, "top_p": 0.9, "max_output_tokens": 400},
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=prompt,
+            config={
+                "temperature": 0.3,
+                "top_p": 0.9,
+                "max_output_tokens": 400,
+            },
         )
         return response.text.strip() if response and response.text else None
     except Exception:

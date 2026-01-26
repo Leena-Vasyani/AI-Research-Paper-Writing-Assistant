@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Badge from "@/components/Badge";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
@@ -15,13 +15,59 @@ import type {
   QueryResult,
 } from "@/lib/types";
 
-type StepId =
-  | "topic"
-  | "retrieval"
-  | "summary"
-  | "draft"
-  | "plagiarism"
-  | "citation";
+type StepId = "topic" | "retrieval" | "summary" | "draft" | "citation" | "plagiarism";
+
+interface StepShellProps {
+  step: StepId;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  isComplete: Record<StepId, boolean>;
+  currentStep: StepId;
+  openStep: StepId;
+  setOpenStep: (step: StepId) => void;
+}
+
+function StepShell({
+  step,
+  title,
+  description,
+  children,
+  isComplete,
+  currentStep,
+  openStep,
+  setOpenStep,
+}: StepShellProps) {
+  const completed = isComplete[step];
+  const isOpen = openStep === step;
+
+  if (!completed && step !== currentStep) return null;
+
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold">{title}</div>
+          <p className="text-xs text-zinc-400">{description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {completed ? (
+            <Badge tone="success">Completed</Badge>
+          ) : (
+            <Badge tone="warning">In progress</Badge>
+          )}
+          <button
+            onClick={() => setOpenStep(isOpen ? currentStep : step)}
+            className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+          >
+            {isOpen ? "Collapse" : "Expand"}
+          </button>
+        </div>
+      </div>
+      {isOpen && <div className="mt-4">{children}</div>}
+    </div>
+  );
+}
 
 export default function WorkflowPage() {
   const [topic, setTopic] = useState("");
@@ -42,8 +88,13 @@ export default function WorkflowPage() {
   );
   const [copied, setCopied] = useState<string | null>(null);
   const [openStep, setOpenStep] = useState<StepId>("topic");
+  const [editableKeywords, setEditableKeywords] = useState<string[]>([]);
+  const [newKeyword, setNewKeyword] = useState("");
 
-  const keywords = useMemo(() => queryResult?.keywords ?? [], [queryResult]);
+  const keywords = useMemo(
+    () => (editableKeywords.length > 0 ? editableKeywords : queryResult?.keywords ?? []),
+    [editableKeywords, queryResult]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -108,8 +159,8 @@ export default function WorkflowPage() {
     );
     const draftWords = draft
       ? draft.abstract.split(" ").length +
-        draft.introduction.split(" ").length +
-        draft.related_work.split(" ").length
+      draft.introduction.split(" ").length +
+      draft.related_work.split(" ").length
       : 0;
     const plagiarismScore = plagiarism?.overall_score ?? null;
     return {
@@ -135,8 +186,8 @@ export default function WorkflowPage() {
     "retrieval",
     "summary",
     "draft",
-    "plagiarism",
     "citation",
+    "plagiarism",
   ];
   const currentStep =
     stepOrder.find((step) => !isComplete[step]) ?? "plagiarism";
@@ -230,6 +281,24 @@ export default function WorkflowPage() {
     }
   };
 
+  const handleCitation = async () => {
+    if (!draft) return;
+    setError(null);
+    setLoading("Adding citations...");
+    try {
+      const result = await api.citation({
+        draft: draft,
+        papers: papers,
+        style: "IEEE",
+      });
+      setCitation(result);
+    } catch (e: unknown) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const handlePlagiarism = async () => {
     if (!draft) return;
     setError(null);
@@ -246,67 +315,6 @@ export default function WorkflowPage() {
     } finally {
       setLoading(null);
     }
-  };
-
-  const handleCitation = async () => {
-    if (!draft) return;
-    setError(null);
-    setLoading("Adding citations...");
-    try {
-      const result = await api.citation({
-        draft,
-        papers,
-        style: "apa",
-        plagiarism_results: plagiarism || undefined,
-      });
-      setCitation(result);
-    } catch (e: unknown) {
-      setError(getErrorMessage(e));
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const StepShell = ({
-    step,
-    title,
-    description,
-    children,
-  }: {
-    step: StepId;
-    title: string;
-    description: string;
-    children: ReactNode;
-  }) => {
-    const completed = isComplete[step];
-    const isOpen = openStep === step;
-
-    if (!completed && step !== currentStep) return null;
-
-    return (
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold">{title}</div>
-            <p className="text-xs text-zinc-400">{description}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {completed ? (
-              <Badge tone="success">Completed</Badge>
-            ) : (
-              <Badge tone="warning">In progress</Badge>
-            )}
-            <button
-              onClick={() => setOpenStep(isOpen ? currentStep : step)}
-              className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-            >
-              {isOpen ? "Collapse" : "Expand"}
-            </button>
-          </div>
-        </div>
-        {isOpen && <div className="mt-4">{children}</div>}
-      </div>
-    );
   };
 
   return (
@@ -366,6 +374,10 @@ export default function WorkflowPage() {
             step="topic"
             title="1) Topic analysis"
             description="Define the topic and extract keywords."
+            isComplete={isComplete}
+            currentStep={currentStep}
+            openStep={openStep}
+            setOpenStep={setOpenStep}
           >
             <div className="space-y-3">
               <input
@@ -393,8 +405,58 @@ export default function WorkflowPage() {
                 Analyze Topic
               </button>
               {queryResult && (
-                <div className="rounded-xl bg-zinc-950 p-3 text-xs text-zinc-300">
-                  Keywords: {queryResult.keywords.join(", ")}
+                <div className="space-y-3">
+                  <div className="rounded-xl bg-zinc-950 p-3">
+                    <div className="mb-2 text-[11px] uppercase text-zinc-500">
+                      Extracted Keywords (editable)
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {keywords.map((keyword, idx) => (
+                        <div
+                          key={idx}
+                          className="group flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200"
+                        >
+                          <span>{keyword}</span>
+                          <button
+                            onClick={() => {
+                              const newKeywords = keywords.filter((_, i) => i !== idx);
+                              setEditableKeywords(newKeywords);
+                            }}
+                            className="ml-1 text-zinc-500 hover:text-rose-400"
+                            aria-label="Remove keyword"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        value={newKeyword}
+                        onChange={(e) => setNewKeyword(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newKeyword.trim()) {
+                            setEditableKeywords([...keywords, newKeyword.trim()]);
+                            setNewKeyword("");
+                          }
+                        }}
+                        placeholder="Add keyword..."
+                        className="flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs placeholder:text-zinc-600"
+                      />
+                      <button
+                        onClick={() => {
+                          if (newKeyword.trim()) {
+                            setEditableKeywords([...keywords, newKeyword.trim()]);
+                            setNewKeyword("");
+                          }
+                        }}
+                        disabled={!newKeyword.trim()}
+                        className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -404,6 +466,10 @@ export default function WorkflowPage() {
             step="retrieval"
             title="2) Paper retrieval"
             description="Fetch and review relevant papers."
+            isComplete={isComplete}
+            currentStep={currentStep}
+            openStep={openStep}
+            setOpenStep={setOpenStep}
           >
             <div className="space-y-3">
               <div className="flex items-center gap-3">
@@ -425,13 +491,53 @@ export default function WorkflowPage() {
                 Retrieve Papers
               </button>
               {papers.length > 0 && (
-                <div className="space-y-2 text-xs text-zinc-300">
+                <div className="space-y-3">
                   {papers.map((paper, idx) => (
                     <div
                       key={idx}
-                      className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"
+                      className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 space-y-2"
                     >
-                      {(paper as { title?: string }).title || "Untitled"}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          {paper.pdf_url ? (
+                            <a
+                              href={paper.pdf_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:underline inline-flex items-center gap-1"
+                            >
+                              {paper.title || "Untitled"}
+                              <svg
+                                className="w-3 h-3 shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                />
+                              </svg>
+                            </a>
+                          ) : (
+                            <div className="text-xs font-medium text-zinc-300">
+                              {paper.title || "Untitled"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {(paper.authors_str || paper.authors) && (
+                        <div className="text-[11px] text-zinc-500">
+                          {paper.authors_str || paper.authors?.join(", ")}
+                        </div>
+                      )}
+                      {paper.published && (
+                        <div className="text-[11px] text-zinc-600">
+                          Published: {paper.published}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -443,6 +549,10 @@ export default function WorkflowPage() {
             step="summary"
             title="3) Summary synthesis"
             description="Generate the comprehensive summary."
+            isComplete={isComplete}
+            currentStep={currentStep}
+            openStep={openStep}
+            setOpenStep={setOpenStep}
           >
             <div className="space-y-3">
               <button
@@ -486,7 +596,7 @@ export default function WorkflowPage() {
                           Executive Summary
                         </div>
                         <p className="mt-1 text-zinc-200">
-                          {summary.executive_summary as string}
+                          {summary.executive_summary}
                         </p>
                       </div>
                     )}
@@ -496,19 +606,18 @@ export default function WorkflowPage() {
                         <div className="text-[11px] uppercase text-zinc-500">
                           Section Summaries
                         </div>
-                        {Object.entries(
-                          summary.section_summaries as Record<string, string>,
-                        ).map(([section, content]) => (
-                          <div
-                            key={section}
-                            className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2"
-                          >
-                            <div className="text-[11px] uppercase text-zinc-500">
-                              {section}
+                        {Object.entries(summary.section_summaries).map(
+                          ([section, content]) => (
+                            <div
+                              key={section}
+                              className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2"
+                            >
+                              <div className="text-[11px] uppercase text-zinc-500">
+                                {section}
+                              </div>
+                              <p className="mt-1 text-zinc-200">{content}</p>
                             </div>
-                            <p className="mt-1 text-zinc-200">{content}</p>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                     )}
 
@@ -517,23 +626,22 @@ export default function WorkflowPage() {
                         <div className="text-[11px] uppercase text-zinc-500">
                           Key Insights
                         </div>
-                        {Object.entries(
-                          summary.key_insights as Record<string, string[]>,
-                        ).map(([group, items]) => (
-                          <div
-                            key={group}
-                            className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2"
-                          >
-                            <div className="text-[11px] uppercase text-zinc-500">
-                              {group.replace(/_/g, " ")}
+                        {Object.entries(summary.key_insights).map(
+                          ([group, items]) => (
+                            <div
+                              key={group}
+                              className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2"
+                            >
+                              <div className="text-[11px] uppercase text-zinc-500">
+                                {group.replace(/_/g, " ")}
+                              </div>
+                              <ul className="mt-1 list-disc space-y-1 pl-4 text-zinc-200">
+                                {items.map((item) => (
+                                  <li key={String(item)}>{String(item)}</li>
+                                ))}
+                              </ul>
                             </div>
-                            <ul className="mt-1 list-disc space-y-1 pl-4 text-zinc-200">
-                              {items.map((item) => (
-                                <li key={String(item)}>{String(item)}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                     )}
                   </div>
@@ -546,6 +654,10 @@ export default function WorkflowPage() {
             step="draft"
             title="4) Draft generation"
             description="Turn synthesis into draft sections."
+            isComplete={isComplete}
+            currentStep={currentStep}
+            openStep={openStep}
+            setOpenStep={setOpenStep}
           >
             <div className="space-y-3">
               <button
@@ -619,6 +731,10 @@ export default function WorkflowPage() {
             step="plagiarism"
             title="5) Plagiarism check"
             description="Validate originality against sources."
+            isComplete={isComplete}
+            currentStep={currentStep}
+            openStep={openStep}
+            setOpenStep={setOpenStep}
           >
             <div className="space-y-3">
               <button
@@ -665,6 +781,10 @@ export default function WorkflowPage() {
             step="citation"
             title="6) Citation management"
             description="Automatically add intelligent citations."
+            isComplete={isComplete}
+            currentStep={currentStep}
+            openStep={openStep}
+            setOpenStep={setOpenStep}
           >
             <div className="space-y-3">
               <button

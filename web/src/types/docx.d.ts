@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare module "docx" {
   export class Document {
     constructor(opts?: any);

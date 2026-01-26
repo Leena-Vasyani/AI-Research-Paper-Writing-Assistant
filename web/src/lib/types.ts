@@ -1,4 +1,18 @@
-export type Paper = Record<string, unknown>;
+export type Paper = {
+  title?: string;
+  authors?: string[];
+  authors_str?: string;
+  abstract?: string;
+  published?: string;
+  pdf_url?: string;
+  entry_id?: string;
+  categories?: string[];
+  primary_category?: string;
+  query_used?: string;
+  retrieved_at?: string;
+  relevance_score?: number;
+  [key: string]: unknown;
+};
 
 export type QueryResult = {
   original_topic: string;
@@ -8,6 +22,7 @@ export type QueryResult = {
 };
 
 export type ComprehensiveSummary = {
+  executive_summary?: string;
   section_summaries?: Record<string, string>;
   key_insights?: Record<string, string[]>;
   metadata?: Record<string, unknown>;
