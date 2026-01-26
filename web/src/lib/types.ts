@@ -41,4 +41,11 @@ export type CitationReport = {
   plagiarism_citations: number;
   references: Array<Record<string, unknown>>;
   citation_map: Record<string, unknown>;
+}
+export type PseudocodeResult = {
+  success: boolean;
+  latex_code: string;
+  provider?: string;
+  algorithm_name?: string;
+  error?: string;
 };

@@ -57,3 +57,12 @@ class CitationRequest(BaseModel):
     papers: List[Dict[str, Any]] = Field(..., description="Source papers for citations")
     style: str = Field("apa", description="Citation style: apa|ieee|mla")
     plagiarism_results: Optional[Dict[str, Any]] = None
+    
+class PseudocodeRequest(BaseModel):
+    code: str = Field(..., description="Source code to convert")
+    algorithm_name: str = Field("", description="Optional algorithm name for caption")
+
+
+class PseudocodeRequest(BaseModel):
+    code: str = Field(..., description="Source code to convert")
+    algorithm_name: str = Field("", description="Optional algorithm name for caption")
