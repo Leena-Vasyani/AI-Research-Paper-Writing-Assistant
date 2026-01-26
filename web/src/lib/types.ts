@@ -34,3 +34,11 @@ export type DiagramResult = {
   diagram_type: string;
   error?: string;
 };
+
+export type PseudocodeResult = {
+  success: boolean;
+  latex_code: string;
+  provider?: string;
+  algorithm_name?: string;
+  error?: string;
+};

@@ -35,6 +35,12 @@ const agents = [
       "Converts natural language descriptions into editable technical diagrams using Mermaid.js.",
     output: "Interactive diagrams (flowcharts, sequence, ER, etc.)",
   },
+  {
+    title: "Pseudocode Agent",
+    purpose:
+      "Transforms implementation code into professional LaTeX pseudocode for academic papers.",
+    output: "LaTeX algorithm2e formatted pseudocode",
+  },
 ];
 
 const tools = [
@@ -63,6 +69,17 @@ const tools = [
       "Perfect for system architectures, workflows, and data models",
     ],
   },
+  {
+    title: "Code to Pseudocode",
+    description:
+      "Convert implementation code into publication-ready LaTeX pseudocode using algorithm2e formatting.",
+    features: [
+      "Mathematical notation and IEEE/ACM formatting",
+      "Algorithm2e \For, \If, \While structure support",
+      "Ignores boilerplate to focus on core logic",
+      "Copy-ready LaTeX output for papers",
+    ],
+  },
 ];
 
 export default function HowItWorksPage() {
@@ -86,6 +103,7 @@ export default function HowItWorksPage() {
             <li>4. Draft academic sections with tuned prompts.</li>
             <li>5. Verify originality with plagiarism checks.</li>
             <li>6. Visualize concepts with AI-generated diagrams.</li>
+            <li>7. Convert code into LaTeX pseudocode.</li>
           </ol>
         </SectionCard>
 

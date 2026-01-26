@@ -1,17 +1,25 @@
 import type {
   ComprehensiveSummary,
-  DiagramResult,
   Draft,
   Paper,
   PlagiarismReport,
+  PseudocodeResult,
   QueryResult,
 } from "./types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+function normalizePath(base: string, path: string): string {
+  const trimmedBase = base.replace(/\/+$/, "");
+  if (trimmedBase.endsWith("/api") && path.startsWith("/api")) {
+    return `${trimmedBase}${path.replace(/^\/api/, "")}`;
+  }
+  return `${trimmedBase}${path}`;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(normalizePath(API_BASE, path), {
     headers: {
       "Content-Type": "application/json",
       ...(options?.headers ?? {}),
@@ -84,6 +92,11 @@ export const api = {
       diagram_type: string;
       error?: string;
     }>("/api/diagram", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  convertToPseudocode: (payload: { code: string; algorithm_name?: string }) =>
+    request<PseudocodeResult>("/api/pseudocode", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

@@ -18,6 +18,7 @@ from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
 from core_agents.plagiarism_agent import PlagiarismDetectionAgent
 from core_agents.diagram_agent import DiagramAgent
+from core_agents.pseudocode_agent import PseudocodeAgent
 from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
 from api.schemas import (
@@ -28,6 +29,7 @@ from api.schemas import (
     PlagiarismRequest,
     RefineBlockRequest,
     DiagramRequest,
+    PseudocodeRequest,
 )
 
 app = FastAPI(title="ResearchGen API", version="0.1.0")
@@ -45,6 +47,7 @@ retrieval_agent = PaperRetrievalAgent()
 summarization_agent = PaperSummarizationAgent()
 plagiarism_agent = PlagiarismDetectionAgent()
 diagram_agent = DiagramAgent()
+pseudocode_agent = PseudocodeAgent()
 
 
 def _refine_with_groq(prompt: str) -> str | None:
@@ -179,5 +182,13 @@ def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
 def generate_diagram(req: DiagramRequest) -> Dict[str, Any]:
     try:
         return diagram_agent.generate_diagram(req.description, req.diagram_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/pseudocode")
+def convert_to_pseudocode(req: PseudocodeRequest) -> Dict[str, Any]:
+    try:
+        return pseudocode_agent.convert_to_pseudocode(req.code, req.algorithm_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -50,3 +50,13 @@ class RefineBlockRequest(BaseModel):
 class DiagramRequest(BaseModel):
     description: str = Field(..., description="Text description for diagram")
     diagram_type: str = Field("auto", description="Optional diagram type hint")
+
+
+class PseudocodeRequest(BaseModel):
+    code: str = Field(..., description="Source code to convert")
+    algorithm_name: str = Field("", description="Optional algorithm name for caption")
+
+
+class PseudocodeRequest(BaseModel):
+    code: str = Field(..., description="Source code to convert")
+    algorithm_name: str = Field("", description="Optional algorithm name for caption")
