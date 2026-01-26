@@ -5,6 +5,7 @@ import type {
   Paper,
   PlagiarismReport,
   QueryResult,
+  CitationReport,
 } from "./types";
 
 export const API_BASE =
@@ -84,6 +85,16 @@ export const api = {
       diagram_type: string;
       error?: string;
     }>("/api/diagram", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  citation: (payload: {
+    draft: Record<string, string>;
+    papers: Paper[];
+    style?: string;
+    plagiarism_results?: Record<string, unknown>;
+  }) =>
+    request<CitationReport>("/api/citation", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

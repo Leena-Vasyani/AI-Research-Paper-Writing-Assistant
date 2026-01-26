@@ -17,6 +17,7 @@ from core_agents.query_agent import ScientificQueryAgent
 from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
 from core_agents.plagiarism_agent import PlagiarismDetectionAgent
+from core_agents.citation_agent import CitationAgent
 from core_agents.diagram_agent import DiagramAgent
 from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
@@ -26,6 +27,7 @@ from api.schemas import (
     SummarizeRequest,
     DraftRequest,
     PlagiarismRequest,
+    CitationRequest,
     RefineBlockRequest,
     DiagramRequest,
 )
@@ -44,6 +46,7 @@ query_agent = ScientificQueryAgent()
 retrieval_agent = PaperRetrievalAgent()
 summarization_agent = PaperSummarizationAgent()
 plagiarism_agent = PlagiarismDetectionAgent()
+citation_agent = CitationAgent()
 diagram_agent = DiagramAgent()
 
 
@@ -140,6 +143,16 @@ def plagiarism(req: PlagiarismRequest) -> Dict[str, Any]:
     try:
         return plagiarism_agent.check_plagiarism(
             req.generated_draft, req.source_papers, req.research_topic
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/citation")
+def add_citations(req: CitationRequest) -> Dict[str, Any]:
+    try:
+        return citation_agent.add_citations_to_draft(
+            req.draft, req.papers, req.plagiarism_results, req.style
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

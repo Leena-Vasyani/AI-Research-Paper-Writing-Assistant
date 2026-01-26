@@ -50,3 +50,10 @@ class RefineBlockRequest(BaseModel):
 class DiagramRequest(BaseModel):
     description: str = Field(..., description="Text description for diagram")
     diagram_type: str = Field("auto", description="Optional diagram type hint")
+
+
+class CitationRequest(BaseModel):
+    draft: Dict[str, str] = Field(..., description="Draft sections to cite")
+    papers: List[Dict[str, Any]] = Field(..., description="Source papers for citations")
+    style: str = Field("apa", description="Citation style: apa|ieee|mla")
+    plagiarism_results: Optional[Dict[str, Any]] = None

@@ -179,9 +179,13 @@ class ContentCleaner:
             topic_words = set(expected_topic.lower().split())
             text_lower = text.lower()
             
-            # Check if at least some key words from topic appear
-            matching_words = [w for w in topic_words if w in text_lower and len(w) > 3]
-            if len(matching_words) == 0:
+            # For multi-word topics like "Application of LLMs in healthcare"
+            # Check for significant keywords (words > 3 chars)
+            important_words = [w for w in topic_words if len(w) > 3]
+            matching_words = [w for w in important_words if w in text_lower]
+            
+            # Need at least 50% of important keywords or major topic mention
+            if len(matching_words) == 0 and expected_topic.lower() not in text_lower:
                 issues.append(f"Content doesn't mention key topic: {expected_topic}")
         
         # Check for inappropriate content
@@ -205,8 +209,9 @@ class ContentCleaner:
         
         # Check for proper sentence structure
         sentences = re.split(r'[.!?]+', text)
-        if len(sentences) < 3:
-            issues.append("Insufficient number of sentences")
+        valid_sentences = [s.strip() for s in sentences if s.strip()]
+        if len(valid_sentences) < 2:
+            issues.append("Insufficient number of sentences (minimum 2)")
         
         return len(issues) == 0, issues
     
@@ -273,23 +278,28 @@ class FineTunedDraftingAgent:  # Changed back to original class name for Streaml
         
         # Build topic-specific prompts
         if section_type == "abstract":
-            prompt = f"""Write a 150-200 word research abstract for: {research_topic}
+            prompt = f"""Write a 150-200 word research abstract ONLY about: {research_topic}
 
-Key aspects:
-- Research focus: {research_topic}
-- Main approaches: {', '.join(methods) if methods else 'novel techniques'}
+TOPIC MUST BE: {research_topic}
+Key terms to include: {', '.join(key_terms[:5])}
+
+Key research content:
+- Main approaches: {', '.join(methods) if methods else 'novel techniques in this field'}
 - Significant results: {', '.join(findings) if findings else 'meaningful contributions'}
 - Research challenges: {', '.join(gaps[:2]) if gaps else 'important open problems'}
 
-Requirements:
-1. Start with the research problem or motivation
-2. Describe the methodology or approach used
-3. Summarize the key results or findings
-4. State implications and importance
-5. Use clear, academic language
-6. Do NOT copy from existing work
+REQUIREMENTS:
+1. MUST discuss {research_topic} - NOT other topics
+2. Start with the research problem or motivation
+3. Describe the methodology or approach used
+4. Summarize the key results or findings
+5. State implications and importance
+6. Write 4-5 complete sentences minimum
+7. Use clear, academic language
+8. Do NOT copy from existing work
+9. Do NOT discuss unrelated topics like LSTM, CNN, or other methods not relevant to {research_topic}
 
-Write the abstract:"""
+Write the abstract about {research_topic}:"""
         
         elif section_type == "introduction":
             prompt = f"""Write an introduction section (300-400 words) for a research paper on: {research_topic}

@@ -3,9 +3,9 @@ import SectionCard from "@/components/SectionCard";
 
 const team = [
   { name: "Namit Gandhi", role: "AI and backend " },
-  { name: "Leena Vasyani", role: "backend & UX" },
+  { name: "Leena Vasyani", role: "AI, backend and UX" },
   { name: "Varun Vishe", role: "Frontend Engineer" },
-  { name: "Abhishek Goud", role: "Ai And Backend Engineer" },
+  { name: "Abhishek Goud", role: "AI and Backend Engineer" },
 ];
 
 export default function AboutPage() {

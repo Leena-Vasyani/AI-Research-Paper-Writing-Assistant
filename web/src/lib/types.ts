@@ -34,3 +34,11 @@ export type DiagramResult = {
   diagram_type: string;
   error?: string;
 };
+
+export type CitationReport = {
+  cited_draft: Record<string, string>;
+  citations_added: number;
+  plagiarism_citations: number;
+  references: Array<Record<string, unknown>>;
+  citation_map: Record<string, unknown>;
+};

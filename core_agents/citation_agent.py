@@ -346,6 +346,22 @@ class CitationAgent:
         print("\n📝 Adding Intelligent Citations (with Plagiarism Priority)...")
         print("-" * 60)
         
+        # DEBUG: Print the plagiarism results structure
+        print(f"\n🔍 DEBUG: Plagiarism results structure:")
+        if plagiarism_results:
+            print(f"   Keys: {list(plagiarism_results.keys())}")
+            for key in list(plagiarism_results.keys())[:5]:
+                value = plagiarism_results[key]
+                if isinstance(value, dict):
+                    print(f"   {key}: {type(value).__name__} with keys {list(value.keys())[:5]}")
+                elif isinstance(value, list):
+                    print(f"   {key}: {type(value).__name__} with {len(value)} items")
+                else:
+                    print(f"   {key}: {type(value).__name__} = {str(value)[:50]}")
+        else:
+            print("   ⚠️ No plagiarism results provided!")
+        print()
+        
         cited_sections = {}
         all_references = []
         citation_map = {}
@@ -360,19 +376,51 @@ class CitationAgent:
             
             # Get plagiarism flags for this section if available
             section_plagiarism = {}
-            if plagiarism_results and 'section_analysis' in plagiarism_results:
-                section_data = plagiarism_results['section_analysis'].get(section_name, {})
-                flagged = section_data.get('flagged_sentences', [])
+            if plagiarism_results:
+                # Try different possible structures for plagiarism results
+                section_data = None
                 
-                # Create mapping of sentences to their source papers
-                for flag in flagged:
-                    sentence = flag.get('sentence', '')
-                    source = flag.get('source', '')
-                    similarity = flag.get('similarity', 0)
-                    section_plagiarism[sentence] = {
-                        'source': source,
-                        'similarity': similarity
-                    }
+                # Structure 1: plagiarism_results['section_analysis'][section_name]
+                if 'section_analysis' in plagiarism_results:
+                    section_data = plagiarism_results['section_analysis'].get(section_name, {})
+                    print(f"    ✓ Using structure 1: section_analysis[{section_name}]")
+                # Structure 2: plagiarism_results[section_name]
+                elif section_name in plagiarism_results:
+                    section_data = plagiarism_results[section_name]
+                    print(f"    ✓ Using structure 2: plagiarism_results[{section_name}]")
+                # Structure 3: plagiarism_results has top-level 'flagged_sentences'
+                elif 'flagged_sentences' in plagiarism_results:
+                    section_data = plagiarism_results
+                    print(f"    ✓ Using structure 3: top-level flagged_sentences")
+                # Structure 4: Check if there's 'sections' key
+                elif 'sections' in plagiarism_results:
+                    section_data = plagiarism_results['sections'].get(section_name, {})
+                    print(f"    ✓ Using structure 4: sections[{section_name}]")
+                else:
+                    print(f"    ✗ Could not find plagiarism data for {section_name}")
+                    section_data = None
+                
+                if section_data:
+                    flagged = section_data.get('flagged_sentences', [])
+                    
+                    if flagged:
+                        print(f"    🔍 Plagiarism data found: {len(flagged)} flagged sentences")
+                    else:
+                        print(f"    ℹ️ No flagged_sentences in section_data")
+                        print(f"    📋 section_data keys: {list(section_data.keys())}")
+                    
+                    # Create mapping of sentences to their source papers
+                    for flag in flagged:
+                        sentence = flag.get('sentence', '')
+                        source = flag.get('source', '')
+                        similarity = flag.get('similarity', 0)
+                        
+                        if sentence:
+                            section_plagiarism[sentence] = {
+                                'source': source,
+                                'similarity': similarity
+                            }
+                            print(f"    📝 Flagged: {sentence[:60]}... (similarity: {similarity:.1%})")
             
             cited_text = section_text
             citation_count = 0
@@ -382,22 +430,60 @@ class CitationAgent:
                 print(f"    📌 Found {len(section_plagiarism)} flagged sentences to cite")
                 
                 for flagged_sentence, plagiarism_info in section_plagiarism.items():
-                    # Find the best paper to cite (prefer the source paper mentioned)
-                    source_title = plagiarism_info['source']
-                    matching_papers = [p for p in retrieved_papers 
-                                     if source_title.lower() in p.get('title', '').lower() or
-                                        source_title.lower() in p.get('abstract', '').lower()]
+                    print(f"      🔎 Trying to cite: {flagged_sentence[:50]}...")
                     
+                    # Try to find the exact sentence in the text first
+                    sentence_found = False
+                    if flagged_sentence in section_text:
+                        sentence_to_cite = flagged_sentence
+                        sentence_found = True
+                        print(f"      ✓ Found exact sentence match in text")
+                    else:
+                        # Try fuzzy matching - find similar sentence
+                        sentences_in_text = re.split(r'[.!?]+', section_text)
+                        best_match = None
+                        best_score = 0
+                        
+                        for s in sentences_in_text:
+                            s = s.strip()
+                            if len(s) > 10:  # Only consider meaningful sentences
+                                # Simple similarity: count matching words
+                                flagged_words = set(flagged_sentence.lower().split())
+                                text_words = set(s.lower().split())
+                                overlap = len(flagged_words & text_words) / max(len(flagged_words), 1)
+                                
+                                if overlap > best_score and overlap > 0.5:
+                                    best_score = overlap
+                                    best_match = s
+                        
+                        if best_match:
+                            sentence_to_cite = best_match
+                            sentence_found = True
+                            print(f"      ✓ Found fuzzy match (similarity: {best_score:.1%})")
+                    
+                    if not sentence_found:
+                        print(f"      ✗ Could not find sentence in text, skipping")
+                        continue
+                    
+                    # Find the best paper to cite
+                    source_title = plagiarism_info['source']
+                    matching_papers = []
+                    
+                    # First try exact source match
+                    if source_title:
+                        matching_papers = [p for p in retrieved_papers 
+                                         if source_title.lower() in p.get('title', '').lower() or
+                                            source_title.lower() in p.get('abstract', '').lower()]
+                    
+                    # If exact match not found, find semantically similar papers
                     if not matching_papers:
-                        # If exact match not found, find semantically similar papers
-                        matching_papers = self.find_relevant_citations(flagged_sentence, retrieved_papers)
+                        print(f"      🔍 No exact source match, finding relevant papers...")
+                        relevant = self.find_relevant_citations(sentence_to_cite, retrieved_papers)
+                        matching_papers = [r['paper'] if isinstance(r, dict) and 'paper' in r else r for r in relevant]
                     
                     if matching_papers:
-                        # Get the most relevant paper
-                        if isinstance(matching_papers[0], dict) and 'paper' in matching_papers[0]:
-                            paper = matching_papers[0]['paper']
-                        else:
-                            paper = matching_papers[0]
+                        paper = matching_papers[0]
+                        print(f"      📖 Found paper: {paper.get('title', 'Unknown')[:50]}...")
                         
                         # Format citation
                         paper_id = paper.get('id', paper.get('title', ''))
@@ -416,17 +502,17 @@ class CitationAgent:
                             all_references.append(formatted_citation)
                         else:
                             citation_number = citation_map[paper_id]["citation_number"]
-                            citation_map[paper_id]["cited_in"].append(section_name)
+                            if section_name not in citation_map[paper_id]["cited_in"]:
+                                citation_map[paper_id]["cited_in"].append(section_name)
                             citation_map[paper_id]["citation_count"] += 1
                             formatted_citation = citation_map[paper_id]["formatted_citation"]
                         
                         # Insert citation into text
                         in_text = formatted_citation["in_text"]
-                        if flagged_sentence in cited_text:
-                            # Find the sentence and add citation after it
-                            position = cited_text.find(flagged_sentence)
+                        if sentence_to_cite in cited_text:
+                            position = cited_text.find(sentence_to_cite)
                             if position != -1:
-                                end_pos = position + len(flagged_sentence)
+                                end_pos = position + len(sentence_to_cite)
                                 # Add citation before the period if it exists
                                 if end_pos < len(cited_text) and cited_text[end_pos] in '.!?':
                                     cited_text = cited_text[:end_pos] + f" {in_text}" + cited_text[end_pos:]
@@ -435,7 +521,13 @@ class CitationAgent:
                                 
                                 citation_count += 1
                                 flagged_sentences_cited += 1
-                                print(f"    ✅ Cited flagged sentence (similarity: {plagiarism_info['similarity']:.1%})")
+                                print(f"      ✅ Cited flagged sentence (similarity: {plagiarism_info['similarity']:.1%})")
+                        else:
+                            print(f"      ✗ Could not insert citation into text")
+                    else:
+                        print(f"      ✗ No papers found to cite")
+            else:
+                print(f"    ℹ️ No plagiarism data for {section_name} - using fallback citation method")
             
             # PRIORITY 2: Citation for other academic claims
             additional_citations = self.extract_citation_needs(section_text)

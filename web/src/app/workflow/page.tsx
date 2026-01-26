@@ -8,13 +8,20 @@ import StatCard from "@/components/StatCard";
 import { api } from "@/lib/api";
 import type {
   ComprehensiveSummary,
+  CitationReport,
   Draft,
   Paper,
   PlagiarismReport,
   QueryResult,
 } from "@/lib/types";
 
-type StepId = "topic" | "retrieval" | "summary" | "draft" | "plagiarism";
+type StepId =
+  | "topic"
+  | "retrieval"
+  | "summary"
+  | "draft"
+  | "plagiarism"
+  | "citation";
 
 export default function WorkflowPage() {
   const [topic, setTopic] = useState("");
@@ -25,6 +32,7 @@ export default function WorkflowPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [summary, setSummary] = useState<ComprehensiveSummary | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [citation, setCitation] = useState<CitationReport | null>(null);
   const [plagiarism, setPlagiarism] = useState<PlagiarismReport | null>(null);
 
   const [loading, setLoading] = useState<string | null>(null);
@@ -118,6 +126,7 @@ export default function WorkflowPage() {
     retrieval: papers.length > 0,
     summary: !!summary,
     draft: !!draft,
+    citation: !!citation,
     plagiarism: !!plagiarism,
   } as const;
 
@@ -127,6 +136,7 @@ export default function WorkflowPage() {
     "summary",
     "draft",
     "plagiarism",
+    "citation",
   ];
   const currentStep =
     stepOrder.find((step) => !isComplete[step]) ?? "plagiarism";
@@ -147,6 +157,7 @@ export default function WorkflowPage() {
       setPapers([]);
       setSummary(null);
       setDraft(null);
+      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -168,6 +179,7 @@ export default function WorkflowPage() {
       setPapers(result);
       setSummary(null);
       setDraft(null);
+      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -183,6 +195,7 @@ export default function WorkflowPage() {
       const result = await api.summarize({ papers, keywords });
       setSummary(result);
       setDraft(null);
+      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -208,6 +221,7 @@ export default function WorkflowPage() {
         },
       });
       setDraft(result);
+      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -227,6 +241,25 @@ export default function WorkflowPage() {
         research_topic: topic,
       });
       setPlagiarism(result);
+    } catch (e: unknown) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleCitation = async () => {
+    if (!draft) return;
+    setError(null);
+    setLoading("Adding citations...");
+    try {
+      const result = await api.citation({
+        draft,
+        papers,
+        style: "apa",
+        plagiarism_results: plagiarism || undefined,
+      });
+      setCitation(result);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
     } finally {
@@ -622,6 +655,78 @@ export default function WorkflowPage() {
                         Export JSON
                       </button>
                     </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </StepShell>
+
+          <StepShell
+            step="citation"
+            title="6) Citation management"
+            description="Automatically add intelligent citations."
+          >
+            <div className="space-y-3">
+              <button
+                onClick={handleCitation}
+                disabled={!draft || !!loading}
+                className="w-full rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium hover:bg-violet-400 disabled:opacity-50"
+              >
+                Add Citations
+              </button>
+              {citation && (
+                <div className="rounded-xl bg-zinc-950 p-3 text-xs text-zinc-300">
+                  <div className="flex items-center justify-between">
+                    <span>Citations added: {citation.citations_added}</span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          copyToClipboard(
+                            JSON.stringify(citation, null, 2),
+                            "citations",
+                          )
+                        }
+                        className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                      >
+                        Copy JSON
+                      </button>
+                      <button
+                        onClick={() =>
+                          downloadJson(citation, "cited_draft.json")
+                        }
+                        className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                      >
+                        Export JSON
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-3 rounded-lg border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
+                    <div>
+                      <div className="text-[11px] uppercase text-zinc-500">
+                        Citation Stats
+                      </div>
+                      <p className="mt-1 text-zinc-200">
+                        Total citations: {citation.citations_added}
+                        <br />
+                        Plagiarism-related: {citation.plagiarism_citations}
+                        <br />
+                        Unique papers cited: {citation.references.length}
+                      </p>
+                    </div>
+                    {citation.cited_draft.references && (
+                      <div>
+                        <div className="text-[11px] uppercase text-zinc-500">
+                          References Section Preview
+                        </div>
+                        <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap text-zinc-200">
+                          {String(citation.cited_draft.references || "").slice(
+                            0,
+                            500,
+                          )}
+                          ...
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

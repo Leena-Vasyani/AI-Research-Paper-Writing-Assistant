@@ -30,6 +30,12 @@ const agents = [
     output: "Plagiarism report",
   },
   {
+    title: "Citation Agent",
+    purpose:
+      "Automatically identifies citation needs and adds proper academic citations to your draft.",
+    output: "Cited draft with references section",
+  },
+  {
     title: "Diagram Agent",
     purpose:
       "Converts natural language descriptions into editable technical diagrams using Mermaid.js.",
@@ -85,7 +91,8 @@ export default function HowItWorksPage() {
             <li>3. Summarize with evidence-backed synthesis.</li>
             <li>4. Draft academic sections with tuned prompts.</li>
             <li>5. Verify originality with plagiarism checks.</li>
-            <li>6. Visualize concepts with AI-generated diagrams.</li>
+            <li>6. Add intelligent citations to your draft.</li>
+            <li>7. Visualize concepts with AI-generated diagrams.</li>
           </ol>
         </SectionCard>
 
