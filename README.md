@@ -59,3 +59,17 @@ NEXT_PUBLIC_API_BASE=http://localhost:8000
 
 - API order and summaries are unchanged; only the UI layer is different.
 - You can keep Streamlit running during the migration.
+
+## Universal Research Formatter
+
+New tool in the Next.js UI:
+
+- Live A4 preview with IEEE-style layout controls
+- Groq-powered Quick Fix bar for layout tweaks
+- LaTeX (.tex) export via latex.js
+
+If you want AI Quick Fix enabled, set in your environment:
+
+```
+GROQ_API_KEY=your_key_here
+```

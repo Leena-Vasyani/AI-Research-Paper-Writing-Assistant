@@ -57,6 +57,23 @@ class PseudocodeRequest(BaseModel):
     algorithm_name: str = Field("", description="Optional algorithm name for caption")
 
 
+class FormatCommand(BaseModel):
+    target: str = Field(..., description="Target section or selection")
+    action: str = Field(..., description="Editor action to perform")
+
+
+class FormatCommandRequest(BaseModel):
+    prompt: str = Field(..., description="User prompt for layout changes")
+    settings: Dict[str, Any] = Field(default_factory=dict)
+    available_targets: List[str] = Field(default_factory=list)
+
+
+class FormatCommandResponse(BaseModel):
+    cssUpdates: Dict[str, Any] = Field(default_factory=dict)
+    editorCommands: List[FormatCommand] = Field(default_factory=list)
+    provider: str = Field("fallback")
+
+
 class PseudocodeRequest(BaseModel):
     code: str = Field(..., description="Source code to convert")
     algorithm_name: str = Field("", description="Optional algorithm name for caption")

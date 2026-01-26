@@ -7,6 +7,7 @@ const navItems = [
   { href: "/", label: "Home" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/smart-drafter", label: "Smart Drafter" },
+  { href: "/universal-research-formatter", label: "Universal Formatter" },
   { href: "/diagram-generator", label: "Text to Diagram" },
   { href: "/code-to-pseudocode", label: "Code to Pseudocode" },
   { href: "/workflow", label: "Workflow" },

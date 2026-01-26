@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, Dict, List
 import os
+import json
+import re
 
 try:
     from groq import Groq
@@ -30,6 +32,7 @@ from api.schemas import (
     RefineBlockRequest,
     DiagramRequest,
     PseudocodeRequest,
+    FormatCommandRequest,
 )
 
 app = FastAPI(title="ResearchGen API", version="0.1.0")
@@ -71,6 +74,38 @@ def _refine_with_groq(prompt: str) -> str | None:
 def _refine_with_gemini(prompt: str) -> str | None:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key or genai is None:
+        return None
+
+
+def _parse_json_block(text: str) -> Dict[str, Any] | None:
+    try:
+        return json.loads(text)
+    except Exception:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            return None
+
+
+def _format_with_groq(prompt: str) -> Dict[str, Any] | None:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            top_p=0.1,
+            max_tokens=300,
+        )
+        content = response.choices[0].message.content.strip()
+        return _parse_json_block(content)
+    except Exception:
         return None
     try:
         genai.configure(api_key=api_key)
@@ -190,5 +225,51 @@ def generate_diagram(req: DiagramRequest) -> Dict[str, Any]:
 def convert_to_pseudocode(req: PseudocodeRequest) -> Dict[str, Any]:
     try:
         return pseudocode_agent.convert_to_pseudocode(req.code, req.algorithm_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/format-commands")
+def format_commands(req: FormatCommandRequest) -> Dict[str, Any]:
+    try:
+        prompt = (
+            "You are a layout assistant for academic papers. "
+            "Return ONLY strict JSON with this schema: "
+            "{\"cssUpdates\": {\"--col-count\": 1}, "
+            "\"editorCommands\": [{\"target\": \"abstract\", \"action\": \"toggleBold\"}]}. "
+            "Rules: output JSON only, no markdown. "
+            "Allowed css keys: --col-count, --col-gap, --font-size, --margin-x, --margin-y. "
+            "Allowed editor actions: toggleBold, toggleItalic, toggleHeading1, toggleHeading2. "
+            f"Current settings: {req.settings}. "
+            f"Available targets: {req.available_targets}. "
+            f"User request: {req.prompt}"
+        )
+
+        data = _format_with_groq(prompt)
+        if not data:
+            return {"cssUpdates": {}, "editorCommands": [], "provider": "fallback"}
+
+        css_updates = data.get("cssUpdates", {}) if isinstance(data, dict) else {}
+        editor_cmds = data.get("editorCommands", []) if isinstance(data, dict) else []
+        if not isinstance(css_updates, dict):
+            css_updates = {}
+        if not isinstance(editor_cmds, list):
+            editor_cmds = []
+
+        normalized_cmds = []
+        for cmd in editor_cmds:
+            if not isinstance(cmd, dict):
+                continue
+            target = str(cmd.get("target", "")).strip()
+            action = str(cmd.get("action", "")).strip()
+            if not target or not action:
+                continue
+            normalized_cmds.append({"target": target, "action": action})
+
+        return {
+            "cssUpdates": css_updates,
+            "editorCommands": normalized_cmds,
+            "provider": "groq",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

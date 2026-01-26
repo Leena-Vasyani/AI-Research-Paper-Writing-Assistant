@@ -100,4 +100,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  formatCommands: (payload: {
+    prompt: string;
+    settings: Record<string, unknown>;
+    available_targets: string[];
+  }) =>
+    request<{
+      cssUpdates: Record<string, unknown>;
+      editorCommands: { target: string; action: string }[];
+      provider: string;
+    }>("/api/format-commands", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

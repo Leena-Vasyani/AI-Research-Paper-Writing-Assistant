@@ -14,6 +14,8 @@
     "@tiptap/starter-kit": "^3.17.1",
     "dictionary-en-us": "^2.2.1",
     "docx": "^9.5.1",
+    "katex": "^0.16.11",
+    "latex.js": "^0.12.6",
     "mermaid": "^11.12.2",
     "next": "16.1.4",
     "nspell": "^2.1.5",

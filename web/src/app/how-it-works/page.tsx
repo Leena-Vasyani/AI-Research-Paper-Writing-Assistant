@@ -57,6 +57,17 @@ const tools = [
     ],
   },
   {
+    title: "Universal Research Formatter",
+    description:
+      "A live A4 preview editor that formats papers to IEEE-style layout with AI layout adjustments.",
+    features: [
+      "A4 page simulation with column flow",
+      "CSS-variable layout controls (margins, columns, font size)",
+      "Groq-powered quick fixes for layout commands",
+      "Export-ready LaTeX (.tex) pipeline",
+    ],
+  },
+  {
     title: "Text to Diagram",
     description:
       "Generate professional technical diagrams from plain text descriptions using AI-powered Mermaid.js code generation.",
