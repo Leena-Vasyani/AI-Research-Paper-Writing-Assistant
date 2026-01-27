@@ -29,3 +29,302 @@ body {
   text-decoration: underline wavy #f87171;
   text-decoration-thickness: 1.5px;
 }
+
+/* IEEE Paper Editor Styles */
+
+/* A4 Paper Base */
+.a4-paper {
+  position: relative;
+  background: white;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Print styles for PDF export */
+@media print {
+  .a4-paper {
+    width: 210mm !important;
+    min-height: auto !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  .paper-editor-content {
+    column-count: 2 !important;
+    column-gap: 6mm !important;
+  }
+
+  .page-break-indicator {
+    display: none !important;
+  }
+}
+
+/* ProseMirror Editor Base */
+.paper-editor-content .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  height: 100%;
+}
+
+/* Force exactly 2 columns */
+.paper-editor-content {
+  columns: 2 !important;
+  column-gap: 6mm !important;
+}
+
+/* A4 Page styling */
+.a4-page {
+  background: white;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Paragraph styling */
+.paper-editor-content .ProseMirror p {
+  margin: 0 0 0.6em;
+  text-align: justify;
+  text-indent: 0.25in;
+  break-inside: avoid-column;
+  orphans: 2;
+  widows: 2;
+}
+
+.paper-editor-content .ProseMirror p:first-child {
+  text-indent: 0;
+}
+
+.paper-editor-content .ProseMirror h1 {
+  font-size: 14pt;
+  font-weight: bold;
+  text-align: center;
+  text-transform: uppercase;
+  margin: 1em 0 0.5em;
+  font-variant: small-caps;
+  column-span: all;
+}
+
+.paper-editor-content .ProseMirror h1:first-child {
+  font-size: 24pt;
+  margin-top: 0;
+  font-variant: normal;
+}
+
+.paper-editor-content .ProseMirror h2 {
+  font-size: 11pt;
+  font-style: italic;
+  font-weight: normal;
+  margin: 1em 0 0.4em;
+  text-align: left;
+}
+
+.paper-editor-content .ProseMirror h3 {
+  font-size: 10pt;
+  font-weight: bold;
+  margin: 0.8em 0 0.3em;
+}
+
+.paper-editor-content .ProseMirror ul,
+.paper-editor-content .ProseMirror ol {
+  margin: 0.5em 0 0.5em 1.5em;
+}
+
+.paper-editor-content .ProseMirror li {
+  margin-bottom: 0.25em;
+}
+
+.paper-editor-content .ProseMirror em {
+  font-style: italic;
+}
+
+.paper-editor-content .ProseMirror strong {
+  font-weight: bold;
+}
+
+.paper-editor-content .ProseMirror p.is-editor-empty:first-child::before {
+  color: #9ca3af;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* IEEE Table Styles */
+.paper-editor-content .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 9pt;
+}
+
+.paper-editor-content .ProseMirror th,
+.paper-editor-content .ProseMirror td {
+  border: 1px solid #374151;
+  padding: 4px 8px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.paper-editor-content .ProseMirror th {
+  background: #f3f4f6;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 8pt;
+}
+
+.paper-editor-content .ProseMirror tr:nth-child(even) {
+  background: #fafafa;
+}
+
+/* Math notation styling (for $ delimited content) */
+.paper-editor-content .ProseMirror code {
+  font-family: "Times New Roman", Times, serif;
+  font-style: italic;
+  background: transparent;
+  padding: 0;
+}
+
+/* Block quote for equations */
+.paper-editor-content .ProseMirror blockquote {
+  text-align: center;
+  font-style: italic;
+  margin: 1em 0;
+  padding: 0;
+  border: none;
+}
+
+/* Live IEEE Preview Styles */
+.ieee-preview-html h1 {
+  font-size: 10pt;
+  font-weight: bold;
+  text-align: center;
+  margin: 0 0 0.5em;
+  column-span: all;
+}
+
+.ieee-preview-html h2 {
+  font-size: 7pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin: 0.8em 0 0.3em;
+}
+
+.ieee-preview-html h3 {
+  font-size: 7pt;
+  font-style: italic;
+  font-weight: normal;
+  margin: 0.6em 0 0.2em;
+}
+
+.ieee-preview-html p {
+  margin: 0 0 0.4em;
+  text-indent: 1em;
+}
+
+.ieee-preview-html p:first-child {
+  text-indent: 0;
+}
+
+.ieee-preview-html table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 5pt;
+  margin: 0.5em 0;
+}
+
+.ieee-preview-html th,
+.ieee-preview-html td {
+  border: 0.5px solid #666;
+  padding: 1px 2px;
+  text-align: center;
+}
+
+.ieee-preview-html th {
+  background: #f0f0f0;
+  font-weight: bold;
+}
+
+.ieee-preview-html ul,
+.ieee-preview-html ol {
+  margin: 0.3em 0;
+  padding-left: 1.2em;
+  font-size: 6pt;
+}
+
+.ieee-preview-html li {
+  margin: 0.1em 0;
+}
+
+.ieee-preview-html strong {
+  font-weight: bold;
+}
+
+.ieee-preview-html em {
+  font-style: italic;
+}
+
+.ieee-preview-html sub {
+  font-size: 0.7em;
+  vertical-align: sub;
+}
+
+.ieee-preview-html sup {
+  font-size: 0.7em;
+  vertical-align: super;
+}
+
+/* Editor Content Styles - ensure no italic */
+.editor-content .ProseMirror {
+  font-style: normal !important;
+  outline: none;
+}
+
+.editor-content .ProseMirror p {
+  font-style: normal;
+  margin: 0.5em 0;
+}
+
+.editor-content .ProseMirror h1,
+.editor-content .ProseMirror h2,
+.editor-content .ProseMirror h3,
+.editor-content .ProseMirror h4 {
+  font-style: normal;
+  font-weight: bold;
+  margin: 1em 0 0.5em;
+}
+
+.editor-content .ProseMirror h1 {
+  font-size: 1.5em;
+}
+
+.editor-content .ProseMirror h2 {
+  font-size: 1.25em;
+}
+
+.editor-content .ProseMirror h3 {
+  font-size: 1.1em;
+}
+
+.editor-content .ProseMirror em {
+  font-style: italic;
+}
+
+.editor-content .ProseMirror strong {
+  font-weight: bold;
+}
+
+.editor-content .ProseMirror ul,
+.editor-content .ProseMirror ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.editor-content .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.editor-content .ProseMirror th,
+.editor-content .ProseMirror td {
+  border: 1px solid #ccc;
+  padding: 0.5em;
+}

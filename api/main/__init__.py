@@ -33,6 +33,8 @@ from api.schemas import (
     DiagramRequest,
     PseudocodeRequest,
     FormatCommandRequest,
+    FormatIEEERequest,
+    CompilePDFRequest,
 )
 
 app = FastAPI(title="ResearchGen API", version="0.1.0")
@@ -273,3 +275,189 @@ def format_commands(req: FormatCommandRequest) -> Dict[str, Any]:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _format_ieee_with_ai(raw_text: str, format_type: str) -> Dict[str, Any] | None:
+    """Use AI to structure raw text into IEEE format HTML."""
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
+    
+    prompt = f"""You are an IEEE research paper formatting expert. Convert the following raw text into well-structured HTML for an IEEE {format_type} paper.
+
+CRITICAL RULES:
+1. Detect and structure sections: Title, Abstract, Introduction, Methodology, Results, Discussion, Conclusion, References
+2. Use this HTML structure:
+   - Title: <h1>TITLE HERE</h1>
+   - Section headers (I. INTRODUCTION): <h1>I. INTRODUCTION</h1>
+   - Subsection headers (A. Background): <h2>A. Background</h2>
+   - Paragraphs: <p>text</p>
+   - Bold: <strong>text</strong>
+   - Italic: <em>text</em>
+   - Lists: <ul><li>item</li></ul> or <ol><li>item</li></ol>
+
+3. TABLES - VERY IMPORTANT: Convert ASCII tables or tabular data into proper HTML tables:
+   <table>
+     <thead><tr><th>Header1</th><th>Header2</th></tr></thead>
+     <tbody><tr><td>Data1</td><td>Data2</td></tr></tbody>
+   </table>
+
+4. EQUATIONS - Convert LaTeX/math notation:
+   - Inline math like $x^2$ becomes: <em>x²</em>
+   - Block equations become: <blockquote><em>Equation: content</em></blockquote>
+   - Greek letters: $\\alpha$ → α, $\\beta$ → β, $\\delta$ → δ, $\\lambda$ → λ
+   - Subscripts: $x_i$ → x<sub>i</sub>
+   - Superscripts: $x^2$ → x<sup>2</sup>
+
+5. For references, format as: <p>[1] Author, "Title," Journal, year.</p>
+6. Use Roman numerals (I, II, III) for main sections
+7. Use letters (A, B, C) for subsections  
+8. Make the abstract content italic with <em>
+9. Return ONLY the HTML content, no explanations or markdown code blocks
+
+RAW TEXT:
+{raw_text[:12000]}
+
+Return the formatted HTML:"""
+
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=4000,
+        )
+        html_content = response.choices[0].message.content.strip()
+        
+        # Clean up any markdown code blocks
+        if html_content.startswith("```"):
+            html_content = re.sub(r'^```\w*\n?', '', html_content)
+            html_content = re.sub(r'\n?```$', '', html_content)
+        
+        # Count detected elements
+        sections = len(re.findall(r'<h1>', html_content, re.IGNORECASE))
+        equations = len(re.findall(r'\[Equation:', html_content))
+        references = len(re.findall(r'\[\d+\]', html_content))
+        
+        return {
+            "success": True,
+            "formatted_html": html_content,
+            "sections_detected": sections,
+            "equations_found": equations,
+            "references_found": references,
+            "provider": "groq"
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/format-ieee")
+def format_ieee(req: FormatIEEERequest) -> Dict[str, Any]:
+    """Format raw text to IEEE paper structure using AI."""
+    try:
+        result = _format_ieee_with_ai(req.raw_text, req.format_type)
+        
+        if result and result.get("success"):
+            return result
+        
+        # Fallback: basic formatting without AI
+        lines = req.raw_text.strip().split('\n')
+        html_parts = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Detect patterns
+            if line.isupper() and len(line) < 100:
+                html_parts.append(f"<h1>{line}</h1>")
+            elif re.match(r'^[IVX]+\.\s', line):
+                html_parts.append(f"<h1>{line}</h1>")
+            elif re.match(r'^[A-Z]\.\s', line):
+                html_parts.append(f"<h2>{line}</h2>")
+            elif re.match(r'^\d+\)\s', line):
+                html_parts.append(f"<p>{line}</p>")
+            else:
+                html_parts.append(f"<p>{line}</p>")
+        
+        return {
+            "success": True,
+            "formatted_html": "\n".join(html_parts),
+            "sections_detected": len([p for p in html_parts if '<h1>' in p]),
+            "equations_found": 0,
+            "references_found": 0,
+            "provider": "fallback",
+            "error": result.get("error") if result else "AI unavailable"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+import subprocess
+import tempfile
+import base64
+import shutil
+
+
+@app.post("/api/compile-pdf")
+def compile_pdf(req: CompilePDFRequest) -> Dict[str, Any]:
+    """Compile LaTeX to PDF using pdflatex."""
+    try:
+        # Check if pdflatex is available
+        pdflatex_path = shutil.which("pdflatex")
+        if not pdflatex_path:
+            return {
+                "success": False,
+                "error": "pdflatex not found. Install TeX Live or MiKTeX to enable PDF compilation.",
+                "compilation_log": "pdflatex executable not found in PATH"
+            }
+        
+        # Create temp directory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tex_file = os.path.join(tmpdir, "paper.tex")
+            pdf_file = os.path.join(tmpdir, "paper.pdf")
+            
+            # Write LaTeX file
+            with open(tex_file, 'w', encoding='utf-8') as f:
+                f.write(req.latex_code)
+            
+            # Run pdflatex twice for references
+            for _ in range(2):
+                result = subprocess.run(
+                    [pdflatex_path, "-interaction=nonstopmode", "-output-directory", tmpdir, tex_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+            
+            # Check if PDF was created
+            if os.path.exists(pdf_file):
+                with open(pdf_file, 'rb') as f:
+                    pdf_bytes = f.read()
+                
+                return {
+                    "success": True,
+                    "pdf_base64": base64.b64encode(pdf_bytes).decode('utf-8'),
+                    "compilation_log": result.stdout[-2000:] if result.stdout else ""
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "PDF compilation failed",
+                    "compilation_log": result.stdout[-2000:] if result.stdout else result.stderr[-2000:]
+                }
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "error": "Compilation timeout (60s exceeded)",
+            "compilation_log": ""
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "compilation_log": ""
+        }
+

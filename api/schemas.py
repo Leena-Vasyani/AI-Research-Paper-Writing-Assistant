@@ -77,3 +77,15 @@ class FormatCommandResponse(BaseModel):
 class PseudocodeRequest(BaseModel):
     code: str = Field(..., description="Source code to convert")
     algorithm_name: str = Field("", description="Optional algorithm name for caption")
+
+
+class FormatIEEERequest(BaseModel):
+    raw_text: str = Field(..., description="Raw research paper text to format")
+    format_type: str = Field("conference", description="IEEE format: conference|journal|transactions")
+    detect_equations: bool = Field(True, description="Auto-detect and format equations")
+    detect_references: bool = Field(True, description="Auto-detect and format references")
+
+
+class CompilePDFRequest(BaseModel):
+    latex_code: str = Field(..., description="LaTeX code to compile to PDF")
+

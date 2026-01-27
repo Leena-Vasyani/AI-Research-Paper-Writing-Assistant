@@ -113,4 +113,36 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  // IEEE Paper Formatting
+  formatIEEE: (payload: {
+    raw_text: string;
+    format_type: "conference" | "journal" | "transactions";
+    detect_equations?: boolean;
+    detect_references?: boolean;
+  }) =>
+    request<{
+      success: boolean;
+      formatted_html: string;
+      sections_detected: number;
+      equations_found: number;
+      references_found: number;
+      provider: string;
+      error?: string;
+    }>("/api/format-ieee", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // PDF Compilation
+  compilePDF: (payload: { latex_code: string }) =>
+    request<{
+      success: boolean;
+      pdf_base64?: string;
+      error?: string;
+      compilation_log?: string;
+    }>("/api/compile-pdf", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
