@@ -1,0 +1,170 @@
+/* Smart Drafter Styles */
+
+/* Editor Styles */
+.smart-drafter-editor {
+    min-height: 400px;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.smart-drafter-editor .ProseMirror {
+    outline: none;
+}
+
+.smart-drafter-editor .ProseMirror:focus {
+    outline: none;
+}
+
+/* IEEE Table Styles */
+.ieee-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.875rem;
+    color: #e4e4e7;
+}
+
+.ieee-table th {
+    background-color: #27272a;
+    border: 1px solid #3f3f46;
+    padding: 0.5rem;
+    text-align: left;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.ieee-table td {
+    border: 1px solid #3f3f46;
+    padding: 0.5rem;
+    text-align: left;
+}
+
+.ieee-table tr:nth-child(even) {
+    background-color: #18181b;
+}
+
+.ieee-table tr:hover {
+    background-color: #27272a;
+}
+
+/* Equation Styles */
+.equation-inline {
+    font-style: italic;
+    color: #a78bfa;
+    padding: 0 0.25rem;
+    font-family: "Times New Roman", serif;
+}
+
+.equation-block {
+    display: block;
+    text-align: center;
+    font-style: italic;
+    color: #a78bfa;
+    margin: 1rem 0;
+    padding: 0.75rem;
+    background-color: #18181b;
+    border-left: 3px solid #7c3aed;
+    font-family: "Times New Roman", serif;
+    font-size: 1.1rem;
+}
+
+/* Spell Check Underline */
+.spell-underline {
+    text-decoration: underline wavy #ef4444;
+    text-decoration-skip-ink: none;
+}
+
+/* Heading Styles for IEEE Format */
+.smart-drafter-editor h1 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    color: #fafafa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.smart-drafter-editor h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    color: #e4e4e7;
+}
+
+.smart-drafter-editor h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    color: #d4d4d8;
+}
+
+.smart-drafter-editor p {
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+    text-align: justify;
+}
+
+.smart-drafter-editor ul,
+.smart-drafter-editor ol {
+    margin-left: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.smart-drafter-editor li {
+    margin-bottom: 0.25rem;
+}
+
+.smart-drafter-editor blockquote {
+    border-left: 3px solid #3f3f46;
+    padding-left: 1rem;
+    margin: 1rem 0;
+    font-style: italic;
+    color: #a1a1aa;
+}
+
+/* Citation Styles */
+.citation-number {
+    color: #60a5fa;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.citation-number:hover {
+    text-decoration: underline;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .smart-drafter-editor {
+        min-height: 300px;
+    }
+
+    .ieee-table {
+        font-size: 0.75rem;
+    }
+
+    .ieee-table th,
+    .ieee-table td {
+        padding: 0.375rem;
+    }
+}
+
+/* KaTeX Override for Dark Mode */
+.katex {
+    color: #a78bfa !important;
+}
+
+.katex .mord,
+.katex .mbin,
+.katex .mrel,
+.katex .mop,
+.katex .mopen,
+.katex .mclose,
+.katex .mpunct {
+    color: #a78bfa !important;
+}

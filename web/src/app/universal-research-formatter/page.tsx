@@ -1,7 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -29,45 +28,52 @@ type FormatPreset = {
   colGap: string;
   fontSize: string;
   marginX: string;
-  marginY: string;
+  marginTop: string;
+  marginBottom: string;
   titleSize: string;
   abstractStyle: "italic" | "normal";
+  enabled: boolean;
 };
 
 const IEEE_PRESETS: Record<IEEEFormat, FormatPreset> = {
   conference: {
     name: "IEEE Conference",
-    description:
-      "Two-column format for conference papers (CVPR, NeurIPS, etc.)",
+    description: "Strict MS Word Conference-template-A4 layout",
     colCount: 2,
-    colGap: "0.25in",
+    colGap: "0.17in",
     fontSize: "10pt",
-    marginX: "0.75in",
-    marginY: "0.75in",
+    marginX: "0.56in",
+    marginTop: "0.75in",
+    marginBottom: "1.69in",
     titleSize: "24pt",
-    abstractStyle: "italic",
+    abstractStyle: "normal",
+    enabled: true,
   },
   journal: {
     name: "IEEE Journal",
-    description: "Two-column format for journal submissions",
+    description: "Reserved for future journal-specific template support",
     colCount: 2,
     colGap: "0.2in",
     fontSize: "10pt",
     marginX: "0.625in",
-    marginY: "0.875in",
+    marginTop: "0.875in",
+    marginBottom: "0.875in",
     titleSize: "22pt",
     abstractStyle: "normal",
+    enabled: false,
   },
   transactions: {
     name: "IEEE Transactions",
-    description: "Single-column for IEEE Transactions on...",
+    description: "Reserved for future transactions template support",
     colCount: 1,
     colGap: "0in",
     fontSize: "11pt",
     marginX: "1in",
-    marginY: "1in",
+    marginTop: "1in",
+    marginBottom: "1in",
     titleSize: "20pt",
     abstractStyle: "italic",
+    enabled: false,
   },
 };
 
@@ -77,9 +83,25 @@ type PaperSettings = {
   colGap: string;
   fontSize: string;
   marginX: string;
-  marginY: string;
+  marginTop: string;
+  marginBottom: string;
   titleSize: string;
   abstractStyle: "italic" | "normal";
+};
+
+const createPaperSettings = (format: IEEEFormat): PaperSettings => {
+  const preset = IEEE_PRESETS[format];
+  return {
+    format,
+    colCount: preset.colCount,
+    colGap: preset.colGap,
+    fontSize: preset.fontSize,
+    marginX: preset.marginX,
+    marginTop: preset.marginTop,
+    marginBottom: preset.marginBottom,
+    titleSize: preset.titleSize,
+    abstractStyle: preset.abstractStyle,
+  };
 };
 
 // Context Menu State
@@ -90,10 +112,9 @@ type ContextMenuState = {
 };
 
 export default function UniversalResearchFormatterPage() {
-  const [settings, setSettings] = useState<PaperSettings>({
-    format: "conference",
-    ...IEEE_PRESETS.conference,
-  });
+  const [settings, setSettings] = useState<PaperSettings>(
+    createPaperSettings("conference"),
+  );
   const [rawInput, setRawInput] = useState<string>("");
   const [isFormatting, setIsFormatting] = useState(false);
   const [formatStatus, setFormatStatus] = useState<string | null>(null);
@@ -109,6 +130,7 @@ export default function UniversalResearchFormatterPage() {
 
   // Live preview state
   const [livePreviewHtml, setLivePreviewHtml] = useState<string>("");
+  const [ieeeHtml, setIeeeHtml] = useState<string>(""); // preserved IEEE-formatted HTML (bypasses TipTap)
   const [isPreviewUpdating, setIsPreviewUpdating] = useState(false);
   const previewDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -143,26 +165,9 @@ export default function UniversalResearchFormatterPage() {
 
   // Apply format preset
   const applyPreset = (format: IEEEFormat) => {
-    const preset = IEEE_PRESETS[format];
-    setSettings({
-      format,
-      ...preset,
-    });
+    if (!IEEE_PRESETS[format].enabled) return;
+    setSettings(createPaperSettings(format));
   };
-
-  // Paper styles
-  const paperStyle = useMemo(
-    () =>
-      ({
-        "--col-count": String(settings.colCount),
-        "--col-gap": settings.colGap,
-        "--font-size": settings.fontSize,
-        "--margin-x": settings.marginX,
-        "--margin-y": settings.marginY,
-        "--title-size": settings.titleSize,
-      }) as CSSProperties,
-    [settings],
-  );
 
   // Context Menu Handler
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -198,6 +203,8 @@ export default function UniversalResearchFormatterPage() {
       previewDebounceRef.current = setTimeout(() => {
         const html = editor.getHTML();
         setLivePreviewHtml(html);
+        // Clear ieeeHtml on manual edits so preview falls back to editor HTML
+        setIeeeHtml("");
         setIsPreviewUpdating(false);
 
         // Also update page count estimate
@@ -286,6 +293,23 @@ export default function UniversalResearchFormatterPage() {
     },
   ];
 
+  const runDeterministicFormat = useCallback(
+    (input: string) => {
+      const result = formatToIEEE(input);
+      if (!result.html) {
+        throw new Error("No content generated");
+      }
+
+      editor?.commands.setContent(result.html);
+      setIeeeHtml(result.html); // Store IEEE HTML directly (bypasses TipTap stripping)
+      const estimatedPages = estimatePageCount(result.html, settings.colCount);
+      setPageCount(estimatedPages);
+
+      return { result, estimatedPages };
+    },
+    [editor, settings.colCount],
+  );
+
   // Deterministic Format Handler (consistent every time)
   const handleFormat = () => {
     if (!rawInput.trim() || isFormatting) return;
@@ -295,32 +319,20 @@ export default function UniversalResearchFormatterPage() {
     setFormatError(null);
 
     try {
-      // Use deterministic local formatter
-      const result = formatToIEEE(rawInput.trim());
+      const { result, estimatedPages } = runDeterministicFormat(rawInput.trim());
 
       console.log("Format result:", {
         sectionCount: result.sectionCount,
         tableCount: result.tableCount,
         equationCount: result.equationCount,
+        algorithmCount: result.algorithmCount,
+        citationCount: result.citationCount,
       });
 
-      if (result.html) {
-        editor?.commands.setContent(result.html);
-
-        // Auto-calculate page count based on content
-        const estimatedPages = estimatePageCount(
-          result.html,
-          settings.colCount,
-        );
-        setPageCount(estimatedPages);
-
-        setFormatStatus(
-          `Formatted: ${result.sectionCount} sections, ${result.tableCount} tables, ${result.equationCount} equations → ${estimatedPages} page(s)`,
-        );
-        setRawInput(""); // Clear input after successful format
-      } else {
-        throw new Error("No content generated");
-      }
+      setFormatStatus(
+        `Formatted: ${result.sectionCount} sections, ${result.tableCount} tables, ${result.equationCount} equations, ${result.algorithmCount} algorithms, ${result.citationCount} citations → ${estimatedPages} page(s)`,
+      );
+      setRawInput("");
     } catch (error) {
       console.error("Format error:", error);
       setFormatError(
@@ -334,46 +346,6 @@ export default function UniversalResearchFormatterPage() {
         .join("");
       editor?.commands.setContent(html);
       setFormatStatus("Used basic formatting");
-    } finally {
-      setIsFormatting(false);
-      setTimeout(() => setFormatStatus(null), 5000);
-    }
-  };
-
-  // Optional: AI-enhanced formatting (for users who want AI suggestions)
-  const handleAIFormat = async () => {
-    if (!rawInput.trim() || isFormatting) return;
-
-    setIsFormatting(true);
-    setFormatStatus("Enhancing with AI...");
-    setFormatError(null);
-
-    try {
-      const response = await api.formatIEEE({
-        raw_text: rawInput.trim(),
-        format_type: settings.format,
-        detect_equations: true,
-        detect_references: true,
-      });
-
-      if (response.success && response.formatted_html) {
-        editor?.commands.setContent(response.formatted_html);
-        const estimatedPages = estimatePageCount(
-          response.formatted_html,
-          settings.colCount,
-        );
-        setPageCount(estimatedPages);
-        setFormatStatus(
-          `AI formatted (${response.sections_detected} sections) → ${estimatedPages} page(s)`,
-        );
-        setRawInput("");
-      } else {
-        throw new Error(response.error || "AI formatting failed");
-      }
-    } catch (error) {
-      console.error("AI Format error:", error);
-      // Fall back to deterministic formatter
-      handleFormat();
     } finally {
       setIsFormatting(false);
       setTimeout(() => setFormatStatus(null), 5000);
@@ -569,7 +541,10 @@ export default function UniversalResearchFormatterPage() {
   const exportPDFViaBrowser = () => {
     if (!editor) return;
 
-    const content = editor.getHTML();
+    // Use IEEE-formatted HTML if available (preserves custom classes), else editor HTML
+    const content = ieeeHtml || editor.getHTML();
+    const abstractFontStyle =
+      settings.abstractStyle === "italic" ? "italic" : "normal";
 
     // Create a new window for printing
     const printWindow = window.open("", "_blank");
@@ -586,52 +561,191 @@ export default function UniversalResearchFormatterPage() {
         <style>
           @page {
             size: A4;
-            margin: 19mm 17mm 25mm 17mm;
+            margin: ${settings.marginTop} ${settings.marginX} ${settings.marginBottom} ${settings.marginX};
           }
           body {
             font-family: "Times New Roman", Times, serif;
-            font-size: 10pt;
-            line-height: 1.4;
-            column-count: 2;
-            column-gap: 6mm;
+            font-size: ${settings.fontSize};
+            line-height: 1.14;
+            column-count: ${settings.colCount};
+            column-gap: ${settings.colGap};
             text-align: justify;
             hyphens: auto;
             margin: 0;
-            padding: 0;
+            padding: 0 0 20pt;
           }
-          h1 {
+          .paper-title {
             column-span: all;
             text-align: center;
-            font-size: 24pt;
+            font-size: ${settings.titleSize};
             font-weight: normal;
-            margin-bottom: 1em;
+            margin: 0 0 6pt;
           }
-          h2 {
+          .author-grid {
+            column-span: all;
+            display: grid;
+            gap: 8pt 16pt;
+            margin: 18pt 0 10pt;
+          }
+          .author-grid-1 {
+            grid-template-columns: 1fr;
+          }
+          .author-grid-2 {
+            grid-template-columns: 1fr 1fr;
+          }
+          .author-grid-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+          }
+          .author-block {
+            text-align: center;
+          }
+          .author-name {
+            margin: 0 0 2pt;
+            font-size: 11pt;
+            text-indent: 0;
+          }
+          .author-line {
+            margin: 0;
             font-size: 10pt;
-            font-weight: bold;
-            text-transform: uppercase;
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
+            text-indent: 0;
+          }
+          h1, h1.ieee-heading {
+            font-size: 10pt;
+            font-weight: normal;
+            font-variant: small-caps;
+            text-transform: none;
+            text-align: center;
+            margin: 10pt 0 4pt;
+            break-after: avoid-column;
+          }
+          h1.paper-title {
+            column-span: all;
+            font-variant: normal;
+            font-size: ${settings.titleSize};
+            font-weight: normal;
+            text-align: center;
+            text-indent: 0;
+            margin: 0 0 8pt;
+          }
+          .paper-authors {
+            column-span: all;
+            text-align: center;
+            font-size: 11pt;
+            text-indent: 0;
+            margin: 0 0 4pt;
+          }
+          .author-line {
+            column-span: all;
+          }
+          h2, h2.ieee-subheading {
+            font-size: 10pt;
+            font-style: italic;
+            font-weight: normal;
+            text-transform: none;
+            text-align: left;
+            margin: 6pt 0 3pt;
+            break-after: avoid-column;
           }
           h3 {
             font-size: 10pt;
             font-style: italic;
             font-weight: normal;
-            margin-top: 1em;
-            margin-bottom: 0.5em;
+            margin: 0;
           }
           p {
-            text-indent: 0.5em;
-            margin: 0.5em 0;
+            text-indent: 14.4pt;
+            margin: 0 0 6pt;
           }
-          p:first-of-type {
+          p.no-indent {
             text-indent: 0;
+          }
+          .abstract-text {
+            font-size: 9pt;
+            line-height: 1.2;
+            font-style: ${abstractFontStyle};
+            text-indent: 13.6pt;
+            margin: 0 0 10pt;
+          }
+          .index-terms {
+            font-size: 9pt;
+            text-indent: 13.7pt;
+            margin: 0 0 6pt;
+          }
+          .index-terms strong {
+            font-style: italic;
+            font-weight: bold;
+          }
+          .reference-item {
+            font-size: 8pt;
+            line-height: 1.125;
+            text-indent: -18pt;
+            padding-left: 18pt;
+            margin: 0 0 2.5pt;
+          }
+          .ieee-copyright {
+            position: fixed;
+            left: ${settings.marginX};
+            bottom: -1.3in;
+            font-size: 8pt;
+            text-indent: 0;
+            text-align: left;
+            color: #000;
+            opacity: 0.6;
+            column-span: all;
+            z-index: 1000;
+            background: transparent;
+            margin: 0;
+            padding: 0;
+            width: auto;
+          }
+          .ieee-citation {
+            color: inherit;
+            font-weight: normal;
+          }
+          .table-wrapper {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .table-caption {
+            text-align: center;
+            font-size: 8pt;
+            font-variant: small-caps;
+            font-weight: bold;
+            text-indent: 0;
+            margin: 8pt 0 4pt;
+          }
+          .algorithm-block {
+            border: 1px solid #333;
+            margin: 10pt 0;
+            padding: 6pt 8pt;
+            font-size: 9pt;
+            page-break-inside: avoid;
+          }
+          .algo-title {
+            text-align: center;
+            margin-bottom: 4pt;
+            border-bottom: 1px solid #999;
+            padding-bottom: 3pt;
+          }
+          .algo-body {
+            font-family: "Courier New", Courier, monospace;
+            font-size: 8pt;
+            line-height: 1.4;
+          }
+          .algo-line {
+            white-space: pre-wrap;
+          }
+          blockquote.equation {
+            margin: 12pt 0;
+            text-align: center;
+            font-style: italic;
+            page-break-inside: avoid;
           }
           table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 9pt;
-            margin: 1em 0;
+            font-size: 8pt;
+            margin: 4pt 0 6pt;
           }
           th, td {
             border: 1px solid #333;
@@ -672,7 +786,7 @@ export default function UniversalResearchFormatterPage() {
     <div className="space-y-3 px-2 md:px-4 pb-16">
       <PageHeader
         title="Universal Research Formatter"
-        subtitle="AI-powered IEEE formatting with live preview, multiple format presets, and export options."
+        subtitle="Conference-template-A4 strict formatting with live preview and export options."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -688,7 +802,7 @@ export default function UniversalResearchFormatterPage() {
             >
               {isExporting ? "Compiling..." : "Export PDF"}
             </button>
-            <Badge tone="info">v2.0</Badge>
+            <Badge tone="info">Template Lock</Badge>
           </div>
         }
       />
@@ -696,41 +810,50 @@ export default function UniversalResearchFormatterPage() {
       {/* IEEE Format Selector */}
       <SectionCard
         title="IEEE Format Preset"
-        description="Select the IEEE format standard for your paper."
+        description="Conference template is active now. Journal and Transactions are disabled until their dedicated templates are implemented."
       >
         <div className="grid gap-2 md:grid-cols-3">
           {(Object.entries(IEEE_PRESETS) as [IEEEFormat, FormatPreset][]).map(
-            ([key, preset]) => (
-              <button
-                key={key}
-                onClick={() => applyPreset(key)}
-                className={`rounded-lg border p-3 text-left transition-all ${settings.format === key
-                  ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
-                  : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
-                  }`}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`h-3 w-3 rounded-full ${settings.format === key ? "bg-indigo-500" : "bg-zinc-700"
-                      }`}
-                  />
-                  <span className="font-semibold text-sm text-zinc-100">
-                    {preset.name}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {preset.description}
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
-                    {preset.colCount} col
-                  </span>
-                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
-                    {preset.fontSize}
-                  </span>
-                </div>
-              </button>
-            ),
+            ([key, preset]) => {
+              const isDisabled = !preset.enabled;
+              return (
+                <button
+                  key={key}
+                  onClick={() => applyPreset(key)}
+                  disabled={isDisabled}
+                  className={`rounded-lg border p-3 text-left transition-all ${settings.format === key
+                    ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
+                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                    } ${isDisabled ? "cursor-not-allowed opacity-60 hover:border-zinc-800" : ""}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`h-3 w-3 rounded-full ${settings.format === key ? "bg-indigo-500" : "bg-zinc-700"
+                        }`}
+                    />
+                    <span className="font-semibold text-sm text-zinc-100">
+                      {preset.name}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {preset.description}
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                      {preset.colCount} col
+                    </span>
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                      {preset.fontSize}
+                    </span>
+                    {isDisabled && (
+                      <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-amber-300">
+                        coming soon
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            },
           )}
         </div>
       </SectionCard>
@@ -738,7 +861,7 @@ export default function UniversalResearchFormatterPage() {
       {/* Raw Input + AI Format */}
       <SectionCard
         title="Raw Text Input"
-        description="Paste your raw research content. AI will auto-detect sections, equations, and references."
+        description="Paste raw paper content and apply strict Conference-template-A4 formatting."
       >
         <div className="space-y-2">
           <textarea
@@ -776,13 +899,12 @@ Introduction content...
                 <>📄 Format to IEEE</>
               )}
             </button>
-            {/* Secondary: AI formatter (may vary) */}
+            {/* AI formatter is disabled while strict template lock is active */}
             <button
-              onClick={handleAIFormat}
-              disabled={isFormatting || !rawInput.trim()}
-              className="rounded-lg border border-indigo-600 bg-indigo-600/10 px-3 py-2 text-xs text-indigo-300 hover:bg-indigo-600/20 transition-colors disabled:opacity-50"
+              disabled
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-500 cursor-not-allowed"
             >
-              ✨ AI Enhance
+              AI Enhance (coming soon)
             </button>
             <button
               onClick={() => {
@@ -985,8 +1107,8 @@ Introduction content...
 
         {/* Right Panel: Live IEEE Preview */}
         <SectionCard
-          title={`📄 IEEE Preview ${isPreviewUpdating ? "(Updating...)" : ""}`}
-          description="A4 · 2-column · Live preview"
+          title={`Conference Preview ${isPreviewUpdating ? "(Updating...)" : ""}`}
+          description="A4 · 2-column · Conference-template-A4"
         >
           <div
             className="overflow-auto rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
@@ -1015,11 +1137,11 @@ Introduction content...
                   className="ieee-preview-content"
                   style={{
                     fontFamily: '"Times New Roman", Times, serif',
-                    fontSize: "9pt",
-                    lineHeight: 1.4,
-                    padding: "20px",
+                    fontSize: settings.fontSize,
+                    lineHeight: 1.14,
+                    padding: `${settings.marginTop} ${settings.marginX} ${settings.marginBottom}`,
                     columnCount: settings.colCount,
-                    columnGap: "20px",
+                    columnGap: settings.colGap,
                     columnFill: "balance",
                     textAlign: "justify",
                     hyphens: "auto",
@@ -1028,9 +1150,9 @@ Introduction content...
                     minHeight: "600px",
                   }}
                 >
-                  {livePreviewHtml ? (
+                  {(ieeeHtml || livePreviewHtml) ? (
                     <div
-                      dangerouslySetInnerHTML={{ __html: livePreviewHtml }}
+                      dangerouslySetInnerHTML={{ __html: ieeeHtml || livePreviewHtml }}
                       className="ieee-preview-html"
                     />
                   ) : (
@@ -1044,7 +1166,7 @@ Introduction content...
 
                 {/* Format badge */}
                 <div className="absolute top-2 right-2 bg-blue-600 text-white px-1.5 py-0.5 rounded text-[8px] font-medium shadow-sm">
-                  IEEE
+                  Conference A4
                 </div>
 
                 {/* Updating overlay */}
@@ -1085,7 +1207,9 @@ Introduction content...
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-zinc-500">Font:</span>
-                  <span className="text-zinc-300">10pt Times</span>
+                  <span className="text-zinc-300">
+                    {settings.fontSize} Times New Roman
+                  </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-zinc-500">Words:</span>

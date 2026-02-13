@@ -8,16 +8,15 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
+import TableInsertDialog from "@/components/TableInsertDialog";
+import EquationEditor from "@/components/EquationEditor";
+import CitationManager, { Citation } from "@/components/CitationManager";
 import { Document, Packer, Paragraph } from "docx";
 import wordList from "word-list-json";
 import { Plugin } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
-
-type Citation = {
-  id: string;
-  title: string;
-  note: string;
-};
+import "katex/dist/katex.min.css";
+import "./smart-drafter.css";
 
 const defaultCitations: Citation[] = [];
 
@@ -30,6 +29,9 @@ export default function SmartDrafterPage() {
   const [misspellings, setMisspellings] = useState<
     { word: string; suggestions: string[] }[]
   >([]);
+  const [showTableDialog, setShowTableDialog] = useState(false);
+  const [showEquationEditor, setShowEquationEditor] = useState(false);
+  const [showGrammarPanel, setShowGrammarPanel] = useState(true);
 
   const wordSet = useMemo(() => new Set(wordList), []);
   const wordIndex = useMemo(() => buildWordIndex(wordList), []);
@@ -66,9 +68,10 @@ export default function SmartDrafterPage() {
     editorProps: {
       attributes: {
         spellcheck: "true",
+        class: "smart-drafter-editor",
       },
     },
-    content: "<h1>Title</h1><p>Start drafting your paper...</p>",
+    content: "<h1>Title</h1><p>Start drafting your research paper...</p>",
   });
 
   const draftText = useMemo(() => editor?.getText() ?? "", [editor]);
@@ -108,7 +111,14 @@ export default function SmartDrafterPage() {
   const addCitation = () => {
     setCitations((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), title: "New citation", note: "" },
+      {
+        id: crypto.randomUUID(),
+        title: "",
+        authors: "",
+        year: "",
+        venue: "",
+        note: "",
+      },
     ]);
   };
 
@@ -116,6 +126,54 @@ export default function SmartDrafterPage() {
     setCitations((prev) =>
       prev.map((c) => (c.id === citationId ? { ...c, ...patch } : c)),
     );
+  };
+
+  const deleteCitation = (citationId: string) => {
+    setCitations((prev) => prev.filter((c) => c.id !== citationId));
+  };
+
+  const insertCitation = (citationId: string) => {
+    if (!editor) return;
+    const index = citations.findIndex((c) => c.id === citationId);
+    if (index === -1) return;
+    editor.chain().focus().insertContent(`[${index + 1}]`).run();
+  };
+
+  const insertTable = (rows: number, cols: number, withHeader: boolean) => {
+    if (!editor) return;
+
+    // Build simple HTML table
+    let tableHTML = '<table class="ieee-table"><thead>';
+
+    if (withHeader) {
+      tableHTML += '<tr>';
+      for (let i = 0; i < cols; i++) {
+        tableHTML += `<th>Header ${i + 1}</th>`;
+      }
+      tableHTML += '</tr></thead><tbody>';
+      rows--;
+    } else {
+      tableHTML += '</thead><tbody>';
+    }
+
+    for (let i = 0; i < rows; i++) {
+      tableHTML += '<tr>';
+      for (let j = 0; j < cols; j++) {
+        tableHTML += `<td>Cell</td>`;
+      }
+      tableHTML += '</tr>';
+    }
+
+    tableHTML += '</tbody></table>';
+    editor.chain().focus().insertContent(tableHTML).run();
+  };
+
+  const insertEquation = (latex: string, isBlock: boolean) => {
+    if (!editor) return;
+    const content = isBlock
+      ? `<p><em class="equation-block">${latex}</em></p>`
+      : `<em class="equation-inline">${latex}</em>`;
+    editor.chain().focus().insertContent(content).run();
   };
 
   const refineSelection = async (mode: "expand" | "academic" | "refine") => {
@@ -275,6 +333,18 @@ export default function SmartDrafterPage() {
           className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-400"
         >
           Quote
+        </button>
+        <button
+          onClick={() => setShowTableDialog(true)}
+          className="rounded-lg bg-emerald-500 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-400"
+        >
+          📊 Insert Table
+        </button>
+        <button
+          onClick={() => setShowEquationEditor(true)}
+          className="rounded-lg bg-purple-500 px-4 py-2 text-xs font-medium text-white hover:bg-purple-400"
+        >
+          ∑ Insert Equation
         </button>
       </div>
 
@@ -441,43 +511,14 @@ export default function SmartDrafterPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Citations" description="Independent citation chips.">
-        <div className="flex items-center justify-between">
-          <div className="text-xs uppercase text-zinc-500">Citation chips</div>
-          <button
-            onClick={addCitation}
-            className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Add citation
-          </button>
-        </div>
-        <div className="mt-3 space-y-2">
-          {citations.map((citation) => (
-            <div
-              key={citation.id}
-              className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2"
-            >
-              <input
-                value={citation.title}
-                onChange={(e) =>
-                  updateCitation(citation.id, { title: e.target.value })
-                }
-                className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs"
-              />
-              <textarea
-                value={citation.note}
-                onChange={(e) =>
-                  updateCitation(citation.id, { note: e.target.value })
-                }
-                placeholder="Hover/preview note or abstract"
-                className="mt-2 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs"
-              />
-            </div>
-          ))}
-          {!citations.length && (
-            <div className="text-xs text-zinc-500">No citations yet.</div>
-          )}
-        </div>
+      <SectionCard title="Citations" description="IEEE-formatted citations.">
+        <CitationManager
+          citations={citations}
+          onAdd={addCitation}
+          onUpdate={updateCitation}
+          onDelete={deleteCitation}
+          onInsert={insertCitation}
+        />
       </SectionCard>
 
       <SectionCard
@@ -498,6 +539,18 @@ export default function SmartDrafterPage() {
           </div>
         </div>
       </SectionCard>
+
+      {/* Dialog Components */}
+      <TableInsertDialog
+        isOpen={showTableDialog}
+        onClose={() => setShowTableDialog(false)}
+        onInsert={insertTable}
+      />
+      <EquationEditor
+        isOpen={showEquationEditor}
+        onClose={() => setShowEquationEditor(false)}
+        onInsert={insertEquation}
+      />
     </div>
   );
 }
