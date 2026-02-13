@@ -133,6 +133,7 @@ export default function UniversalResearchFormatterPage() {
   const [ieeeHtml, setIeeeHtml] = useState<string>(""); // preserved IEEE-formatted HTML (bypasses TipTap)
   const [isPreviewUpdating, setIsPreviewUpdating] = useState(false);
   const previewDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const isFormattingRef = useRef<boolean>(false); // guard: prevents debounced update from clearing ieeeHtml after programmatic format
 
   const editorRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
@@ -203,8 +204,13 @@ export default function UniversalResearchFormatterPage() {
       previewDebounceRef.current = setTimeout(() => {
         const html = editor.getHTML();
         setLivePreviewHtml(html);
-        // Clear ieeeHtml on manual edits so preview falls back to editor HTML
-        setIeeeHtml("");
+        // Only clear ieeeHtml on manual edits — skip if this update was triggered
+        // by programmatic formatting (handleFormat / runDeterministicFormat)
+        if (isFormattingRef.current) {
+          isFormattingRef.current = false;
+        } else {
+          setIeeeHtml("");
+        }
         setIsPreviewUpdating(false);
 
         // Also update page count estimate
@@ -300,6 +306,9 @@ export default function UniversalResearchFormatterPage() {
         throw new Error("No content generated");
       }
 
+      // Set guard BEFORE setContent so the debounced update handler
+      // knows this was a programmatic format, not a manual edit
+      isFormattingRef.current = true;
       editor?.commands.setContent(result.html);
       setIeeeHtml(result.html); // Store IEEE HTML directly (bypasses TipTap stripping)
       const estimatedPages = estimatePageCount(result.html, settings.colCount);
@@ -1142,7 +1151,7 @@ Introduction content...
                     padding: `${settings.marginTop} ${settings.marginX} ${settings.marginBottom}`,
                     columnCount: settings.colCount,
                     columnGap: settings.colGap,
-                    columnFill: "balance",
+                    columnFill: "auto",
                     textAlign: "justify",
                     hyphens: "auto",
                     wordBreak: "break-word",

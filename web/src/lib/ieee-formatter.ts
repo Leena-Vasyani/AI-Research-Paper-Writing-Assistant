@@ -588,6 +588,12 @@ function isAlgorithmBodyLine(line: string): boolean {
   if (line.startsWith("  ") || line.startsWith("\t")) return true;
   // Lines that start with common pseudo-operators like FOR, ELSE IF
   if (/^(?:ELSE\s+IF|ELSE|END\s+(?:IF|FOR|WHILE))\b/i.test(trimmed)) return true;
+  // Assignment statements: "x = y", "Max_TS = 0", "Leader = null", "Candidates = CollectResponses()"
+  if (/^[A-Za-z_]\w*\s*=\s*.+/.test(trimmed)) return true;
+  // Function/method calls: "CollectResponses()", "InitiateBlockProposal()", "Broadcast(...)"
+  if (/^[A-Za-z_]\w*\s*\(/.test(trimmed)) return true;
+  // Common pseudocode action keywords
+  if (/^(?:BROADCAST|WAIT|SET|SEND|RECEIVE|COMPUTE|CALCULATE|PRINT|APPEND|REMOVE|UPDATE|SORT)\b/i.test(trimmed)) return true;
   return false;
 }
 
@@ -1008,6 +1014,12 @@ export function formatToIEEE(rawText: string): FormatResult {
     }
 
     // ── Algorithm block detection
+    // DEBUG: Trace algorithm detection
+    if (/algorithm/i.test(trimmed) || /^\d+\s*[:.]/.test(trimmed)) {
+      console.log('[ALGO-DEBUG] Line', i, ':', JSON.stringify(trimmed));
+      console.log('[ALGO-DEBUG] isAlgorithmStart result:', isAlgorithmStart(trimmed));
+      console.log('[ALGO-DEBUG] isAlgorithmBodyLine result:', isAlgorithmBodyLine(line));
+    }
     const algoStart = isAlgorithmStart(trimmed);
     if (algoStart) {
       flushTable();

@@ -326,6 +326,9 @@ body {
 
 .ieee-preview-html .table-wrapper {
   break-inside: avoid;
+  break-inside: avoid-column;
+  page-break-inside: avoid;
+  overflow: hidden;
 }
 
 .ieee-preview-html .table-caption {
@@ -342,6 +345,9 @@ body {
   border-collapse: collapse;
   font-size: 8pt;
   margin: 4pt 0 6pt;
+  table-layout: fixed;
+  overflow: hidden;
+  word-wrap: break-word;
 }
 
 .ieee-preview-html th,
@@ -362,6 +368,8 @@ body {
   font-style: italic;
   border: none;
   padding: 0;
+  break-inside: avoid-column;
+  page-break-inside: avoid;
 }
 
 .ieee-preview-html .algorithm-block {
@@ -370,6 +378,9 @@ body {
   padding: 6pt 8pt;
   font-size: 9pt;
   break-inside: avoid;
+  break-inside: avoid-column;
+  page-break-inside: avoid;
+  overflow: hidden;
 }
 
 .ieee-preview-html .algo-title {
