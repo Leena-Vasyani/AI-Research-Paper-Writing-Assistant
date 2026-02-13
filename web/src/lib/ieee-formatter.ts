@@ -60,6 +60,8 @@ const TEMPLATE_INSTRUCTION_PATTERNS: RegExp[] = [
   /^first,\s*confirm\s+that\s+you\s+have\s+the\s+correct\s+template/i,
   /^the\s+template\s+is\s+used\s+to\s+format\s+your\s+paper/i,
   /^do\s+not\s+use\s+symbols,\s*special\s+characters,\s*footnotes,\s*or\s+math/i,
+  // Code-block language labels that sometimes leak into pasted text
+  /^(?:plaintext|python|java|javascript|typescript|c\+\+|ruby|matlab|pseudo-?code|code)$/i,
 ];
 
 const LATEX_SYMBOLS: Record<string, string> = {
@@ -268,6 +270,8 @@ function looksHeadingLike(value: string): boolean {
   const cleaned = collapseWhitespace(value);
   if (!cleaned || cleaned.length > 90 || cleaned.length < 3) return false;
   if (/[.?!]$/.test(cleaned)) return false;
+  // Reject lines starting with digits followed by colon (algorithm pseudocode)
+  if (/^\d+\s*:/.test(cleaned)) return false;
 
   const words = cleaned.split(" ");
   if (words.length > 12) return false;
@@ -314,15 +318,14 @@ function detectHeading(line: string): HeadingDetection {
   }
 
   // Numbered main section  e.g.  "1. INTRODUCTION" or "III. RESULTS"
-  // Must have at least 2 words after the number to avoid matching
-  // algorithm pseudocode lines like "1: Broadcast ..." or list items
+  // Must use period or parenthesis after number (NOT colon — colons indicate pseudocode)
+  // Must have heading-length text (≤8 words) to avoid matching list items
   const numberedMain = trimmed.match(
-    /^(?:section\s+)?(?:\d+|[ivxlcdm]+)[.):]?\s+(.+)$/i,
+    /^(?:section\s+)?(?:\d+|[ivxlcdm]+)[.)]\s+(.+)$/i,
   );
   if (numberedMain) {
     const afterNumber = numberedMain[1].trim();
     const wordCount = afterNumber.split(/\s+/).length;
-    // Only treat as heading if the text is short (heading-like) 
     if (wordCount <= 8 && afterNumber.length <= 80) {
       return {
         kind: "section",
@@ -1018,18 +1021,42 @@ export function formatToIEEE(rawText: string): FormatResult {
       // Collect algorithm body lines
       const algoBodyLines: string[] = [];
       let j = i + 1;
+
+      // Skip leading blank lines and template instruction labels (e.g. "Plaintext")
+      while (j < lines.length) {
+        const peek = collapseWhitespace(lines[j]);
+        if (!peek || isTemplateInstructionLine(peek)) {
+          j++;
+          continue;
+        }
+        break;
+      }
+
       while (j < lines.length) {
         const algoLine = lines[j];
         const algoTrimmed = collapseWhitespace(algoLine);
         if (!algoTrimmed) {
           // Empty line might be internal spacing or end of algorithm
-          // Look ahead to see if more algorithm lines follow
-          if (j + 1 < lines.length && isAlgorithmBodyLine(lines[j + 1])) {
+          // Look ahead past ALL blank lines and template instructions
+          let lookAhead = j + 1;
+          while (lookAhead < lines.length) {
+            const laText = collapseWhitespace(lines[lookAhead]);
+            if (!laText || isTemplateInstructionLine(laText)) {
+              lookAhead++;
+              continue;
+            }
+            break;
+          }
+          if (lookAhead < lines.length && isAlgorithmBodyLine(lines[lookAhead])) {
             algoBodyLines.push(""); // keep internal blank line
             j++;
             continue;
           }
           break;
+        }
+        if (isTemplateInstructionLine(algoTrimmed)) {
+          j++; // skip template instruction inside algorithm
+          continue;
         }
         if (isAlgorithmBodyLine(algoLine)) {
           algoBodyLines.push(algoLine);
@@ -1056,7 +1083,7 @@ export function formatToIEEE(rawText: string): FormatResult {
       while (nextIdx < lines.length && !collapseWhitespace(lines[nextIdx])) {
         nextIdx++;
       }
-      if (nextIdx < lines.length && isTableLine(collapseWhitespace(lines[nextIdx]))) {
+      if (nextIdx < lines.length && isTableLine(lines[nextIdx])) {
         // This is a caption for the upcoming table, store it
         tableCaptionPending = tableCaption;
         continue;
@@ -1066,11 +1093,11 @@ export function formatToIEEE(rawText: string): FormatResult {
       continue;
     }
 
-    // ── Table data lines
-    if (isTableLine(trimmed)) {
+    // ── Table data lines  (use original line to preserve tab characters)
+    if (isTableLine(line)) {
       flushParagraph();
       flushReference();
-      tableBuffer.push(trimmed);
+      tableBuffer.push(line);
       continue;
     }
     flushTable();

@@ -136,6 +136,7 @@ export default function UniversalResearchFormatterPage() {
 
   const editorRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
+  const isProgrammaticUpdateRef = useRef(false);
 
   const editor = useEditor({
     extensions: [
@@ -203,8 +204,12 @@ export default function UniversalResearchFormatterPage() {
       previewDebounceRef.current = setTimeout(() => {
         const html = editor.getHTML();
         setLivePreviewHtml(html);
-        // Clear ieeeHtml on manual edits so preview falls back to editor HTML
-        setIeeeHtml("");
+        // Only clear ieeeHtml on genuine user edits, NOT on programmatic setContent
+        if (isProgrammaticUpdateRef.current) {
+          isProgrammaticUpdateRef.current = false;
+        } else {
+          setIeeeHtml("");
+        }
         setIsPreviewUpdating(false);
 
         // Also update page count estimate
@@ -300,6 +305,7 @@ export default function UniversalResearchFormatterPage() {
         throw new Error("No content generated");
       }
 
+      isProgrammaticUpdateRef.current = true;
       editor?.commands.setContent(result.html);
       setIeeeHtml(result.html); // Store IEEE HTML directly (bypasses TipTap stripping)
       const estimatedPages = estimatePageCount(result.html, settings.colCount);
@@ -308,6 +314,97 @@ export default function UniversalResearchFormatterPage() {
       return { result, estimatedPages };
     },
     [editor, settings.colCount],
+  );
+
+  // Smart paste handler: intercept clipboard HTML to preserve table structure
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const html = e.clipboardData.getData("text/html");
+      // Only proceed if clipboard HTML actually contains a <table> element
+      if (!html || !/<table[\s>]/i.test(html)) {
+        return; // No HTML table — let browser handle default paste
+      }
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+
+      // Only process meaningful tables (2+ rows, 2+ columns)
+      const meaningfulTables = Array.from(doc.querySelectorAll("table")).filter(
+        (table) => {
+          const rows = table.querySelectorAll("tr");
+          if (rows.length < 2) return false;
+          return rows[0].querySelectorAll("th, td").length >= 2;
+        },
+      );
+
+      if (meaningfulTables.length === 0) {
+        return; // No meaningful tables — default paste
+      }
+
+      e.preventDefault();
+
+      // ALWAYS use text/plain as the base — it preserves line breaks and structure
+      let result = e.clipboardData.getData("text/plain");
+
+      // For each table, convert to pipe-separated and try to replace in plain text
+      for (const table of meaningfulTables) {
+        const rows = Array.from(table.querySelectorAll("tr"));
+        const pipeRows = rows.map((tr) => {
+          const cells = Array.from(tr.querySelectorAll("th, td"));
+          return cells
+            .map((c) =>
+              (c.textContent || "").replace(/\s+/g, " ").trim(),
+            )
+            .join(" | ");
+        });
+        const pipeTable = pipeRows.join("\n");
+
+        // Build the concatenated text per row (how it appears in plain text)
+        const rowTexts = rows.map((tr) => {
+          const cells = Array.from(tr.querySelectorAll("th, td"));
+          return cells
+            .map((c) =>
+              (c.textContent || "").replace(/\s+/g, " ").trim(),
+            )
+            .join("");
+        });
+
+        // Find the table region in plain text by matching first/last row text
+        const firstRowText = rowTexts[0];
+        const lastRowText = rowTexts[rowTexts.length - 1];
+        if (firstRowText && lastRowText && firstRowText.length > 3) {
+          const startIdx = result.indexOf(firstRowText);
+          if (startIdx !== -1) {
+            const searchAfter = result.substring(startIdx);
+            const lastIdx = searchAfter.lastIndexOf(lastRowText);
+            if (lastIdx !== -1) {
+              const absEnd = startIdx + lastIdx + lastRowText.length;
+              result =
+                result.substring(0, startIdx) +
+                pipeTable +
+                result.substring(absEnd);
+            }
+          }
+        }
+      }
+
+      // Insert at cursor position in the textarea
+      const textarea = e.currentTarget;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const currentValue = rawInput;
+      const newValue =
+        currentValue.substring(0, start) +
+        result +
+        currentValue.substring(end);
+      setRawInput(newValue);
+
+      requestAnimationFrame(() => {
+        textarea.selectionStart = start + result.length;
+        textarea.selectionEnd = start + result.length;
+      });
+    },
+    [rawInput],
   );
 
   // Deterministic Format Handler (consistent every time)
@@ -867,6 +964,7 @@ export default function UniversalResearchFormatterPage() {
           <textarea
             value={rawInput}
             onChange={(e) => setRawInput(e.target.value)}
+            onPaste={handlePaste}
             placeholder={`Paste your raw research paper here...
 
 Example:
@@ -1145,7 +1243,7 @@ Introduction content...
                     columnFill: "balance",
                     textAlign: "justify",
                     hyphens: "auto",
-                    wordBreak: "break-word",
+                    overflowWrap: "break-word",
                     color: "#000",
                     minHeight: "600px",
                   }}
