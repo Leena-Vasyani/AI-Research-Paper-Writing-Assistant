@@ -17,6 +17,7 @@ import SectionCard from "@/components/SectionCard";
 import Badge from "@/components/Badge";
 import { api } from "@/lib/api";
 import { formatToIEEE, estimatePageCount } from "@/lib/ieee-formatter";
+import { IeeeContainer, IeeeHeading, IeeeParagraph } from "@/lib/tiptap/ieee-nodes";
 
 // IEEE Format Presets
 type IEEEFormat = "conference" | "journal" | "transactions";
@@ -128,21 +129,27 @@ export default function UniversalResearchFormatterPage() {
     y: 0,
   });
 
-  // Live preview state
-  const [livePreviewHtml, setLivePreviewHtml] = useState<string>("");
-  const [ieeeHtml, setIeeeHtml] = useState<string>(""); // preserved IEEE-formatted HTML (bypasses TipTap)
-  const [isPreviewUpdating, setIsPreviewUpdating] = useState(false);
-  const previewDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  // Preview state — updated only on explicit "Refresh Preview" click
+  const [ieeeHtml, setIeeeHtml] = useState<string>("");
+  const [previewStale, setPreviewStale] = useState(false); // true when editor changed since last format/refresh
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const isProgrammaticUpdateRef = useRef(false);
+  const refreshTimerRef = useRef<number | null>(null);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4] },
+        heading: false,
+        paragraph: false,
       }),
+      IeeeHeading.configure({
+        levels: [1, 2, 3, 4],
+      }),
+      IeeeParagraph,
+      IeeeContainer,
       Placeholder.configure({
         placeholder:
           "Paste your raw text and click 'Format with AI' to auto-structure to IEEE format...",
@@ -188,53 +195,70 @@ export default function UniversalResearchFormatterPage() {
     return () => document.removeEventListener("click", handleClick);
   }, []);
 
-  // Live preview: Update IEEE-formatted preview when editor content changes (debounced)
+  // Mark preview as stale whenever the user edits content (not programmatic updates)
   useEffect(() => {
     if (!editor) return;
 
-    const updatePreview = () => {
-      // Clear any existing timeout
-      if (previewDebounceRef.current) {
-        clearTimeout(previewDebounceRef.current);
+    const onUpdate = () => {
+      if (isProgrammaticUpdateRef.current) {
+        isProgrammaticUpdateRef.current = false;
+        return;
       }
-
-      setIsPreviewUpdating(true);
-
-      // Debounce: Wait 1.5 seconds after user stops typing
-      previewDebounceRef.current = setTimeout(() => {
-        const html = editor.getHTML();
-        setLivePreviewHtml(html);
-        // Only clear ieeeHtml on genuine user edits, NOT on programmatic setContent
-        if (isProgrammaticUpdateRef.current) {
-          isProgrammaticUpdateRef.current = false;
-        } else {
-          setIeeeHtml("");
-        }
-        setIsPreviewUpdating(false);
-
-        // Also update page count estimate
-        const text = editor.getText();
-        const estimated = estimatePageCount(text, settings.colCount);
-        setPageCount(estimated);
-      }, 1500);
+      // User typed/edited — preview is now outdated
+      setPreviewStale(true);
     };
 
-    // Listen to editor updates
-    editor.on("update", updatePreview);
+    editor.on("update", onUpdate);
+    return () => {
+      editor.off("update", onUpdate);
+    };
+  }, [editor]);
 
-    // Initial preview
-    const initialHtml = editor.getHTML();
-    if (initialHtml && initialHtml !== "<p></p>") {
-      setLivePreviewHtml(initialHtml);
+  // Refresh Preview: schema-preserved HTML keeps IEEE semantic classes
+  const refreshPreview = useCallback(() => {
+    if (!editor) return;
+    const plainText = editor.getText().trim();
+    if (!plainText) {
+      setIeeeHtml("");
+      setPreviewStale(false);
+      setPageCount(1);
+      return;
     }
 
+    setIsRefreshing(true);
+    try {
+      const html = editor.getHTML();
+      setIeeeHtml(html);
+      setPreviewStale(false);
+      const estimated = estimatePageCount(html, settings.colCount);
+      setPageCount(estimated);
+    } catch {
+      // Fallback: show raw editor HTML
+      setIeeeHtml(editor.getHTML());
+      setPreviewStale(false);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [editor, settings.colCount]);
+
+  // Auto-refresh preview shortly after user stops typing
+  useEffect(() => {
+    if (!previewStale || !editor || isRefreshing) return;
+
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshPreview();
+    }, 600);
+
     return () => {
-      editor.off("update", updatePreview);
-      if (previewDebounceRef.current) {
-        clearTimeout(previewDebounceRef.current);
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
       }
     };
-  }, [editor, settings.colCount]);
+  }, [previewStale, editor, isRefreshing, refreshPreview]);
 
   // Context menu actions
   const contextMenuActions = [
@@ -308,6 +332,7 @@ export default function UniversalResearchFormatterPage() {
       isProgrammaticUpdateRef.current = true;
       editor?.commands.setContent(result.html);
       setIeeeHtml(result.html); // Store IEEE HTML directly (bypasses TipTap stripping)
+      setPreviewStale(false);
       const estimatedPages = estimatePageCount(result.html, settings.colCount);
       setPageCount(estimatedPages);
 
@@ -638,7 +663,7 @@ export default function UniversalResearchFormatterPage() {
   const exportPDFViaBrowser = () => {
     if (!editor) return;
 
-    // Use IEEE-formatted HTML if available (preserves custom classes), else editor HTML
+    // Use IEEE preview HTML to preserve semantics/classes after edits.
     const content = ieeeHtml || editor.getHTML();
     const abstractFontStyle =
       settings.abstractStyle === "italic" ? "italic" : "normal";
@@ -800,8 +825,10 @@ export default function UniversalResearchFormatterPage() {
             font-weight: normal;
           }
           .table-wrapper {
+            break-inside: avoid-column;
             break-inside: avoid;
             page-break-inside: avoid;
+            margin: 8pt 0;
           }
           .table-caption {
             text-align: center;
@@ -840,6 +867,7 @@ export default function UniversalResearchFormatterPage() {
           }
           table {
             width: 100%;
+            table-layout: fixed;
             border-collapse: collapse;
             font-size: 8pt;
             margin: 4pt 0 6pt;
@@ -848,6 +876,7 @@ export default function UniversalResearchFormatterPage() {
             border: 1px solid #333;
             padding: 4px 8px;
             text-align: left;
+            word-break: break-word;
           }
           th {
             background: #f0f0f0;
@@ -1198,30 +1227,55 @@ Introduction content...
               {editor?.getText().split(/\s+/).filter(w => w.length > 0).length || 0} words
             </span>
             <span className="text-[11px] text-zinc-400">
-              Edit freely • IEEE formatting applies to LaTeX preview →
+              Edit freely, then click Refresh Preview →
             </span>
           </div>
         </SectionCard>
 
-        {/* Right Panel: Live IEEE Preview */}
+        {/* Right Panel: IEEE Preview (refreshed on demand) */}
         <SectionCard
-          title={`Conference Preview ${isPreviewUpdating ? "(Updating...)" : ""}`}
+          title="Conference Preview"
           description="A4 · 2-column · Conference-template-A4"
         >
+          {/* Refresh Preview button bar */}
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={refreshPreview}
+              disabled={isRefreshing}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all flex items-center gap-2 ${
+                previewStale
+                  ? "bg-amber-500 text-white hover:bg-amber-400 ring-2 ring-amber-400/40 animate-pulse-once"
+                  : "bg-indigo-600 text-white hover:bg-indigo-500"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isRefreshing ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Formatting...
+                </>
+              ) : (
+                <>{previewStale ? "🔄 Refresh Preview" : "🔄 Refresh Preview"}</>
+              )}
+            </button>
+            {previewStale && ieeeHtml && (
+              <span className="text-[11px] text-amber-400 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-amber-400 inline-block animate-pulse" />
+                Editor changed — click Refresh to update preview
+              </span>
+            )}
+            {!previewStale && ieeeHtml && (
+              <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                Preview up to date
+              </span>
+            )}
+          </div>
+
           <div
             className="overflow-auto rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
             style={{ maxHeight: "75vh", minHeight: "500px" }}
           >
-            {/* Live A4 Page with IEEE format */}
             <div className="flex flex-col items-center gap-4">
-              {/* Updating indicator */}
-              {isPreviewUpdating && (
-                <div className="flex items-center gap-2 text-xs text-amber-400 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>
-                  <span>Updating preview...</span>
-                </div>
-              )}
-
               {/* A4 Page */}
               <div
                 className="relative bg-white shadow-[0_4px_25px_rgba(0,0,0,0.4)] transition-all duration-300 rounded"
@@ -1248,16 +1302,16 @@ Introduction content...
                     minHeight: "600px",
                   }}
                 >
-                  {(ieeeHtml || livePreviewHtml) ? (
+                  {ieeeHtml ? (
                     <div
-                      dangerouslySetInnerHTML={{ __html: ieeeHtml || livePreviewHtml }}
+                      dangerouslySetInnerHTML={{ __html: ieeeHtml }}
                       className="ieee-preview-html"
                     />
                   ) : (
                     <div className="text-zinc-400 text-center py-20 text-[10pt]" style={{ columnSpan: "all" }}>
                       <div className="text-3xl mb-2 opacity-30">📝</div>
-                      <p>Start typing in the editor</p>
-                      <p className="text-[8pt] mt-1 opacity-70">Preview updates automatically</p>
+                      <p>Format your paper first, then click <strong>Refresh Preview</strong></p>
+                      <p className="text-[8pt] mt-1 opacity-70">Preview updates when you click the button above</p>
                     </div>
                   )}
                 </div>
@@ -1267,8 +1321,17 @@ Introduction content...
                   Conference A4
                 </div>
 
-                {/* Updating overlay */}
-                {isPreviewUpdating && (
+                {/* Stale overlay */}
+                {previewStale && ieeeHtml && (
+                  <div className="absolute inset-0 bg-white/30 flex items-center justify-center rounded pointer-events-none">
+                    <span className="bg-amber-500/90 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow pointer-events-auto">
+                      Preview outdated — click Refresh
+                    </span>
+                  </div>
+                )}
+
+                {/* Refreshing overlay */}
+                {isRefreshing && (
                   <div className="absolute inset-0 bg-white/50 flex items-center justify-center rounded">
                     <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                   </div>
@@ -1288,9 +1351,9 @@ Introduction content...
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] text-zinc-400 font-medium">IEEE Format Specs</span>
                 <div className="flex items-center gap-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${isPreviewUpdating ? "bg-amber-400 animate-pulse" : "bg-emerald-500"}`}></div>
+                  <div className={`w-1.5 h-1.5 rounded-full ${previewStale ? "bg-amber-400 animate-pulse" : "bg-emerald-500"}`}></div>
                   <span className="text-[9px] text-zinc-500">
-                    {isPreviewUpdating ? "Syncing" : "Live"}
+                    {previewStale ? "Stale" : "Current"}
                   </span>
                 </div>
               </div>

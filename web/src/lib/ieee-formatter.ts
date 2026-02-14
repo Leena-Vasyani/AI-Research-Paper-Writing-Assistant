@@ -223,9 +223,19 @@ function sanitizeTemplateRestrictedText(value: string): string {
 
 function toRoman(num: number): string {
   const map: [number, string][] = [
-    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
-    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
-    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+    [1000, "M"],
+    [900, "CM"],
+    [500, "D"],
+    [400, "CD"],
+    [100, "C"],
+    [90, "XC"],
+    [50, "L"],
+    [40, "XL"],
+    [10, "X"],
+    [9, "IX"],
+    [5, "V"],
+    [4, "IV"],
+    [1, "I"],
   ];
   let result = "";
   let n = num;
@@ -583,14 +593,21 @@ function isAlgorithmBodyLine(line: string): boolean {
   const trimmed = line.trimStart();
   // Lines that look like pseudocode: "1:", "Input:", "Output:", "for", "while", "if", "end", indented, etc.
   if (/^\d+\s*[:.]/.test(trimmed)) return true;
-  if (/^(?:Input|Output|Require|Ensure|Return|Initialize)\s*:/i.test(trimmed)) return true;
-  if (/^(?:for|while|if|else|end|repeat|until|do|function|procedure)\b/i.test(trimmed)) return true;
+  if (/^(?:Input|Output|Require|Ensure|Return|Initialize)\s*:/i.test(trimmed))
+    return true;
+  if (
+    /^(?:for|while|if|else|end|repeat|until|do|function|procedure)\b/i.test(
+      trimmed,
+    )
+  )
+    return true;
   // Separator lines (dashes, equals, mixed) used in algorithm boxes
   if (/^[-=_]{5,}$/.test(trimmed.replace(/\s/g, ""))) return true;
   // Indented lines (at least 2 spaces) are part of the algorithm body
   if (line.startsWith("  ") || line.startsWith("\t")) return true;
   // Lines that start with common pseudo-operators like FOR, ELSE IF
-  if (/^(?:ELSE\s+IF|ELSE|END\s+(?:IF|FOR|WHILE))\b/i.test(trimmed)) return true;
+  if (/^(?:ELSE\s+IF|ELSE|END\s+(?:IF|FOR|WHILE))\b/i.test(trimmed))
+    return true;
   return false;
 }
 
@@ -603,13 +620,13 @@ function renderAlgorithmBlock(title: string, bodyLines: string[]): string {
       const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length ?? 0;
       const indentLevel = Math.min(Math.floor(leadingSpaces / 2), 4);
       const paddingLeft = indentLevel * 16;
-      return `<div class="algo-line" style="padding-left:${paddingLeft}px">${escaped}</div>`;
+      return `<p class="algo-line" style="margin:0;padding-left:${paddingLeft}px;text-indent:0">${escaped}</p>`;
     })
     .join("");
 
   return (
     `<div class="algorithm-block">` +
-    `<div class="algo-title"><strong>${escapeHtml(title)}</strong></div>` +
+    `<p class="algo-title"><strong>${escapeHtml(title)}</strong></p>` +
     `<div class="algo-body">${bodyHtml}</div>` +
     `</div>`
   );
@@ -642,7 +659,8 @@ function isFrontMatterBoundaryLine(value: string): boolean {
   if (/^abstract\b/i.test(cleaned)) return true;
   if (/^(?:keywords?|index terms?)\b/i.test(cleaned)) return true;
   if (/^(?:references|bibliography)\b/i.test(cleaned)) return true;
-  if (/^(?:publication\s+date|journal|conference)\s*:/i.test(cleaned)) return false;
+  if (/^(?:publication\s+date|journal|conference)\s*:/i.test(cleaned))
+    return false;
   if (/^(?:\d+|[IVXLCM]+)[.)]?\s+[A-Za-z]/i.test(cleaned)) return true;
   if (/^[A-Z][.)]\s+\S+/.test(cleaned)) return true;
   return MAIN_SECTION_KEYWORDS.some((item) =>
@@ -653,7 +671,8 @@ function isFrontMatterBoundaryLine(value: string): boolean {
 function looksLikeTitle(value: string): boolean {
   const cleaned = collapseWhitespace(value);
   if (!cleaned || cleaned.length < 8 || cleaned.length > 180) return false;
-  if (/^(?:abstract|introduction|references|appendix)$/i.test(cleaned)) return false;
+  if (/^(?:abstract|introduction|references|appendix)$/i.test(cleaned))
+    return false;
   if (detectHeading(cleaned).kind !== "none") return false;
   return true;
 }
@@ -765,7 +784,8 @@ function extractFrontMatter(lines: string[]): {
       const trimmed = collapseWhitespace(lines[cursor]);
       return (
         !trimmed ||
-        (isTemplateInstructionLine(trimmed) && !/^line\s*\d+\s*:/i.test(trimmed))
+        (isTemplateInstructionLine(trimmed) &&
+          !/^line\s*\d+\s*:/i.test(trimmed))
       );
     })()
   ) {
@@ -792,7 +812,8 @@ function extractFrontMatter(lines: string[]): {
       const trimmed = collapseWhitespace(lines[cursor]);
       return (
         !trimmed ||
-        (isTemplateInstructionLine(trimmed) && !/^line\s*\d+\s*:/i.test(trimmed))
+        (isTemplateInstructionLine(trimmed) &&
+          !/^line\s*\d+\s*:/i.test(trimmed))
       );
     })()
   ) {
@@ -806,7 +827,11 @@ function extractFrontMatter(lines: string[]): {
     if (isFrontMatterBoundaryLine(trimmed)) break;
 
     // Skip metadata lines that aren't author info
-    if (/^(?:publication\s+date|journal|conference|doi|issn|vol(?:ume)?)\s*:/i.test(trimmed)) {
+    if (
+      /^(?:publication\s+date|journal|conference|doi|issn|vol(?:ume)?)\s*:/i.test(
+        trimmed,
+      )
+    ) {
       cursor += 1;
       continue;
     }
@@ -910,7 +935,7 @@ export function formatToIEEE(rawText: string): FormatResult {
       const sanitized = sanitizeTemplateRestrictedText(text);
       const abstractPrefix = abstractLabelWritten
         ? ""
-        : '<strong>Abstract&mdash;</strong> ';
+        : "<strong>Abstract&mdash;</strong> ";
       abstractLabelWritten = true;
       htmlParts.push(
         `<p class="abstract-text">${abstractPrefix}${escapeHtml(sanitized)}</p>`,
@@ -1047,7 +1072,10 @@ export function formatToIEEE(rawText: string): FormatResult {
             }
             break;
           }
-          if (lookAhead < lines.length && isAlgorithmBodyLine(lines[lookAhead])) {
+          if (
+            lookAhead < lines.length &&
+            isAlgorithmBodyLine(lines[lookAhead])
+          ) {
             algoBodyLines.push(""); // keep internal blank line
             j++;
             continue;
@@ -1089,7 +1117,9 @@ export function formatToIEEE(rawText: string): FormatResult {
         continue;
       }
       // Not followed by a table—render as a standalone caption paragraph
-      htmlParts.push(`<p class="table-caption">${escapeHtml(tableCaption)}</p>`);
+      htmlParts.push(
+        `<p class="table-caption">${escapeHtml(tableCaption)}</p>`,
+      );
       continue;
     }
 
@@ -1106,12 +1136,15 @@ export function formatToIEEE(rawText: string): FormatResult {
     if (inReferences) {
       const breakHeading = detectHeading(trimmed);
       const isReferenceSectionBreak =
-        breakHeading.kind === "appendix" || breakHeading.kind === "acknowledgment";
+        breakHeading.kind === "appendix" ||
+        breakHeading.kind === "acknowledgment";
 
       if (isReferenceSectionBreak) {
         flushReference();
         inReferences = false;
-        htmlParts.push(`<h1 class="ieee-heading">${escapeHtml(breakHeading.title)}</h1>`);
+        htmlParts.push(
+          `<h1 class="ieee-heading">${escapeHtml(breakHeading.title)}</h1>`,
+        );
         justAfterHeading = true;
         continue;
       }
@@ -1154,7 +1187,9 @@ export function formatToIEEE(rawText: string): FormatResult {
       }
 
       if (heading.kind === "appendix" || heading.kind === "acknowledgment") {
-        htmlParts.push(`<h1 class="ieee-heading">${escapeHtml(heading.title)}</h1>`);
+        htmlParts.push(
+          `<h1 class="ieee-heading">${escapeHtml(heading.title)}</h1>`,
+        );
         justAfterHeading = true;
         continue;
       }
@@ -1212,10 +1247,181 @@ export function estimatePageCount(html: string, colCount: 1 | 2): number {
 
   const wordCount = textOnly ? textOnly.split(" ").length : 0;
   const tableCount = (html.match(/<table>/g) || []).length;
-  const equationCount = (html.match(/class="math-inline"|class="equation"/g) || [])
-    .length;
+  const equationCount = (
+    html.match(/class="math-inline"|class="equation"/g) || []
+  ).length;
 
   const wordsPerPage = colCount === 2 ? 750 : 1050;
   const structuralPenalty = tableCount * 0.33 + equationCount * 0.08;
   return Math.max(1, Math.ceil(wordCount / wordsPerPage + structuralPenalty));
+}
+
+/**
+ * Convert TipTap's JSON document model back to structured plain text
+ * that formatToIEEE() can correctly parse.
+ *
+ * TipTap's JSON preserves structural node types (heading, paragraph, table,
+ * list, etc.) even though it strips CSS classes. This function linearises
+ * those nodes into a text format identical to what a user would paste into
+ * the raw-text input, so we can safely re-run formatToIEEE().
+ *
+ * Key roundtrip-safety measures:
+ *  - The first h1 that doesn't look like a section heading gets a "TITLE:"
+ *    prefix so extractFrontMatter always recognises the paper title.
+ *  - Body paragraphs (after abstract / first section heading) are separated
+ *    by blank lines so formatToIEEE treats them as individual paragraphs.
+ *  - The IEEE copyright footer line is filtered out to prevent duplication.
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TipTapNode = Record<string, any>;
+
+function extractNodeText(node: TipTapNode): string {
+  if (!node) return "";
+  if (node.type === "text") return (node.text as string) || "";
+  if (node.type === "hardBreak") return "\n";
+  if (!node.content) return "";
+  return (node.content as TipTapNode[]).map(extractNodeText).join("");
+}
+
+/**
+ * Determine whether a heading's text looks like an IEEE section heading
+ * (numbered, letter-prefixed, or a well-known section name) rather than
+ * a paper title.
+ */
+function isLikelySectionHeading(text: string): boolean {
+  const trimmed = text.trim();
+  // Has roman-numeral or numeric prefix: "I. INTRO", "2. METHOD"
+  if (/^(?:\d+|[IVXLCM]+)[.)\s]\s*/i.test(trimmed)) return true;
+  // Special section names
+  if (
+    /^(?:abstract|references|bibliography|acknowledg?ments?|appendix)\s*:?\s*$/i.test(
+      trimmed,
+    )
+  )
+    return true;
+  // Letter-prefixed subsection: "A. Data Collection"
+  if (/^[A-Z][.)\s]\s+\S+/.test(trimmed)) return true;
+  // Known main-section keyword
+  const cleaned = trimmed.replace(/[.:]\s*$/, "").trim();
+  for (const kw of MAIN_SECTION_KEYWORDS) {
+    if (kw.regex.test(cleaned)) return true;
+  }
+  return false;
+}
+
+/** Pattern that matches the IEEE copyright footer added by formatToIEEE. */
+const COPYRIGHT_ROUNDTRIP_PATTERN = /XXX-X-XXXX|©\s*\d{2,4}XX?\s+IEEE/i;
+
+export function tiptapJsonToStructuredText(doc: TipTapNode): string {
+  if (!doc || !doc.content) return "";
+
+  const blocks: string[] = [];
+  let isFirstH1 = true;
+  // After the abstract / first section heading we're in "body" territory and
+  // each paragraph must be separated by a blank line so formatToIEEE keeps
+  // them as individual paragraphs.
+  let inBodyContent = false;
+
+  for (const node of doc.content as TipTapNode[]) {
+    switch (node.type) {
+      case "heading": {
+        const text = extractNodeText(node).trim();
+        if (text) {
+          blocks.push(""); // blank line before heading
+
+          if (
+            isFirstH1 &&
+            (node.attrs?.level === 1) &&
+            !isLikelySectionHeading(text)
+          ) {
+            // First h1 that isn't a section heading → paper title.
+            // Prefix so extractFrontMatter's titleTagged regex picks it up.
+            blocks.push(`TITLE: ${text}`);
+          } else {
+            blocks.push(text);
+            // Any section heading means we've left front-matter.
+            inBodyContent = true;
+          }
+
+          if (node.attrs?.level === 1) isFirstH1 = false;
+          blocks.push(""); // blank line after heading
+        }
+        break;
+      }
+
+      case "paragraph": {
+        const text = extractNodeText(node).trim();
+
+        // Drop IEEE copyright footer to prevent duplication on re-format.
+        if (text && COPYRIGHT_ROUNDTRIP_PATTERN.test(text)) {
+          break;
+        }
+
+        // Abstract / keywords mark the transition to body content.
+        if (
+          text &&
+          /^(?:abstract|keywords?|index\s+terms?)\b/i.test(text)
+        ) {
+          inBodyContent = true;
+        }
+
+        blocks.push(text);
+
+        // In body content, separate every non-empty paragraph with a blank
+        // line so formatToIEEE treats them as distinct paragraphs.
+        if (text && inBodyContent) {
+          blocks.push("");
+        }
+        break;
+      }
+
+      case "table": {
+        const rows: string[] = [];
+        for (const row of (node.content || []) as TipTapNode[]) {
+          if (row.type !== "tableRow") continue;
+          const cells: string[] = [];
+          for (const cell of (row.content || []) as TipTapNode[]) {
+            cells.push(extractNodeText(cell).trim());
+          }
+          if (cells.length) rows.push(cells.join(" | "));
+        }
+        if (rows.length) {
+          blocks.push("");
+          blocks.push(rows.join("\n"));
+          blocks.push("");
+        }
+        break;
+      }
+
+      case "bulletList":
+      case "orderedList": {
+        const items: string[] = [];
+        for (const item of (node.content || []) as TipTapNode[]) {
+          const text = extractNodeText(item).trim();
+          if (text) items.push(`- ${text}`);
+        }
+        if (items.length) {
+          blocks.push("");
+          blocks.push(items.join("\n"));
+          blocks.push("");
+        }
+        break;
+      }
+
+      case "blockquote": {
+        const text = extractNodeText(node).trim();
+        if (text) blocks.push(text);
+        break;
+      }
+
+      default: {
+        const text = extractNodeText(node).trim();
+        if (text) blocks.push(text);
+        break;
+      }
+    }
+  }
+
+  return blocks.join("\n");
 }

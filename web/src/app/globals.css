@@ -192,19 +192,33 @@ body {
 }
 
 /* Live IEEE Preview Styles */
-.ieee-preview-html h1,
-.ieee-preview-html h1.ieee-heading {
+.ieee-preview-html h1 {
   font-size: 10pt;
   font-weight: 400;
-  font-variant: small-caps;
   text-align: center;
-  margin: 10pt 0 4pt;
+  margin: 8pt 0 4pt;
   text-transform: none;
   break-after: avoid-column;
 }
 
-.ieee-preview-html h2,
-.ieee-preview-html h2.ieee-subheading {
+.ieee-preview-html h1.ieee-heading {
+  font-variant: small-caps;
+}
+
+.ieee-preview-html p.no-indent {
+  text-indent: 0;
+}
+
+.ieee-preview-html .table-caption {
+  text-align: center;
+  font-size: 8pt;
+  font-variant: small-caps;
+  font-weight: bold;
+  text-indent: 0;
+  margin: 8pt 0 4pt;
+}
+
+.ieee-preview-html h2 {
   font-size: 10pt;
   font-weight: 400;
   font-style: italic;
@@ -226,14 +240,9 @@ body {
   text-indent: 14.4pt;
 }
 
-.ieee-preview-html p.no-indent {
-  text-indent: 0;
-}
-
 .ieee-preview-html .paper-title {
   font-size: 24pt;
   font-weight: 400;
-  font-variant: normal;
   text-align: center;
   margin: 0 0 6pt;
   text-indent: 0;
@@ -311,37 +320,23 @@ body {
 }
 
 .ieee-preview-html .ieee-copyright {
-  font-size: 7pt;
-  text-indent: 0;
-  color: #999;
-  opacity: 0.6;
-  margin: 12pt 0 0;
   column-span: all;
-}
-
-.ieee-preview-html .ieee-citation {
-  color: inherit;
-  font-weight: normal;
+  font-size: 8pt;
+  text-indent: 0;
+  margin: 12pt 0 0;
 }
 
 .ieee-preview-html .table-wrapper {
-  break-inside: avoid;
-}
-
-.ieee-preview-html .table-caption {
-  text-align: center;
-  font-size: 8pt;
-  font-variant: small-caps;
-  font-weight: bold;
-  text-indent: 0;
-  margin: 8pt 0 4pt;
+  break-inside: avoid-column;
+  page-break-inside: avoid;
 }
 
 .ieee-preview-html table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 8pt;
-  margin: 4pt 0 6pt;
+  margin: 12pt 0 6pt;
 }
 
 .ieee-preview-html th,
@@ -349,6 +344,7 @@ body {
   border: 0.5px solid #666;
   padding: 2px 4px;
   text-align: left;
+  word-break: break-word;
 }
 
 .ieee-preview-html th {
@@ -362,31 +358,6 @@ body {
   font-style: italic;
   border: none;
   padding: 0;
-}
-
-.ieee-preview-html .algorithm-block {
-  border: 1px solid #555;
-  margin: 10pt 0;
-  padding: 6pt 8pt;
-  font-size: 9pt;
-  break-inside: avoid;
-}
-
-.ieee-preview-html .algo-title {
-  text-align: center;
-  margin-bottom: 4pt;
-  border-bottom: 1px solid #999;
-  padding-bottom: 3pt;
-}
-
-.ieee-preview-html .algo-body {
-  font-family: "Courier New", Courier, monospace;
-  font-size: 8pt;
-  line-height: 1.4;
-}
-
-.ieee-preview-html .algo-line {
-  white-space: pre-wrap;
 }
 
 .ieee-preview-html ul,
