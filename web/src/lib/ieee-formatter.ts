@@ -1332,7 +1332,7 @@ export function tiptapJsonToStructuredText(doc: TipTapNode): string {
 
           if (
             isFirstH1 &&
-            (node.attrs?.level === 1) &&
+            node.attrs?.level === 1 &&
             !isLikelySectionHeading(text)
           ) {
             // First h1 that isn't a section heading → paper title.
@@ -1359,10 +1359,7 @@ export function tiptapJsonToStructuredText(doc: TipTapNode): string {
         }
 
         // Abstract / keywords mark the transition to body content.
-        if (
-          text &&
-          /^(?:abstract|keywords?|index\s+terms?)\b/i.test(text)
-        ) {
+        if (text && /^(?:abstract|keywords?|index\s+terms?)\b/i.test(text)) {
           inBodyContent = true;
         }
 

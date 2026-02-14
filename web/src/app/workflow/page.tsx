@@ -447,16 +447,17 @@ export default function WorkflowPage() {
                     </div>
                   </div>
                   <div className="mt-3 space-y-3 rounded-lg border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
-                    {summary.executive_summary && (
-                      <div>
-                        <div className="text-[11px] uppercase text-zinc-500">
-                          Executive Summary
+                    {typeof summary.executive_summary === "string" &&
+                      summary.executive_summary.trim() && (
+                        <div>
+                          <div className="text-[11px] uppercase text-zinc-500">
+                            Executive Summary
+                          </div>
+                          <p className="mt-1 text-zinc-200">
+                            {summary.executive_summary}
+                          </p>
                         </div>
-                        <p className="mt-1 text-zinc-200">
-                          {summary.executive_summary as string}
-                        </p>
-                      </div>
-                    )}
+                      )}
 
                     {summary.section_summaries && (
                       <div className="space-y-2">

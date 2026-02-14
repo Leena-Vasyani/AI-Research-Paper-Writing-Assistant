@@ -8,6 +8,7 @@ import Underline from "@tiptap/extension-underline";
 import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
 import TextAlign from "@tiptap/extension-text-align";
+import Image from "@tiptap/extension-image";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -17,7 +18,11 @@ import SectionCard from "@/components/SectionCard";
 import Badge from "@/components/Badge";
 import { api } from "@/lib/api";
 import { formatToIEEE, estimatePageCount } from "@/lib/ieee-formatter";
-import { IeeeContainer, IeeeHeading, IeeeParagraph } from "@/lib/tiptap/ieee-nodes";
+import {
+  IeeeContainer,
+  IeeeHeading,
+  IeeeParagraph,
+} from "@/lib/tiptap/ieee-nodes";
 
 // IEEE Format Presets
 type IEEEFormat = "conference" | "journal" | "transactions";
@@ -136,6 +141,8 @@ export default function UniversalResearchFormatterPage() {
 
   const editorRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const pendingInsertPosRef = useRef<number | null>(null);
   const isProgrammaticUpdateRef = useRef(false);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -166,10 +173,128 @@ export default function UniversalResearchFormatterPage() {
       TableRow,
       TableCell,
       TableHeader,
+      Image.configure({
+        inline: false,
+        allowBase64: true,
+      }),
     ],
     immediatelyRender: false,
     content: "",
   });
+
+  const getNextFigureNumber = useCallback(() => {
+    const doc = editor?.getJSON();
+    let count = 0;
+
+    const visit = (node: any) => {
+      if (!node) return;
+
+      if (
+        node.type === "paragraph" &&
+        node.attrs?.ieeeRole === "figureCaption"
+      ) {
+        count += 1;
+      }
+
+      if (Array.isArray(node.content)) {
+        node.content.forEach(visit);
+      }
+    };
+
+    visit(doc);
+    return count + 1;
+  }, [editor]);
+
+  const insertFigureAtSelection = useCallback(
+    (src: string, caption?: string) => {
+      if (!editor || !src) return;
+
+      const figureNumber = getNextFigureNumber();
+      const defaultCaption = `Figure ${figureNumber}.`;
+      const trimmedCaption = (caption || "").trim();
+      const finalCaption = trimmedCaption || defaultCaption;
+      const insertPos =
+        pendingInsertPosRef.current ?? editor.state.selection.from;
+
+      editor
+        .chain()
+        .focus()
+        .setTextSelection(insertPos)
+        .insertContent([
+          {
+            type: "ieeeContainer",
+            attrs: { className: "figure-block" },
+            content: [
+              {
+                type: "image",
+                attrs: {
+                  src,
+                  alt: finalCaption,
+                  title: finalCaption,
+                },
+              },
+              {
+                type: "paragraph",
+                attrs: {
+                  ieeeRole: "figureCaption",
+                  noIndent: true,
+                },
+                content: finalCaption
+                  ? [{ type: "text", text: finalCaption }]
+                  : [],
+              },
+            ],
+          },
+          {
+            type: "paragraph",
+            attrs: { ieeeRole: "none" },
+          },
+        ])
+        .run();
+
+      pendingInsertPosRef.current = null;
+      setPreviewStale(true);
+    },
+    [editor, getNextFigureNumber],
+  );
+
+  const openImagePicker = useCallback(() => {
+    if (!editor) return;
+    pendingInsertPosRef.current = editor.state.selection.from;
+    imageInputRef.current?.click();
+  }, [editor]);
+
+  const insertImageByUrl = useCallback(() => {
+    if (!editor) return;
+
+    pendingInsertPosRef.current = editor.state.selection.from;
+    const src = window.prompt("Paste image URL:", "https://");
+    if (!src) {
+      pendingInsertPosRef.current = null;
+      return;
+    }
+
+    const caption = window.prompt("Caption (optional):", "") ?? "";
+    insertFigureAtSelection(src.trim(), caption);
+  }, [editor, insertFigureAtSelection]);
+
+  const handleImageUpload = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || !file.type.startsWith("image/")) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const src = typeof reader.result === "string" ? reader.result : "";
+        if (!src) return;
+        const caption = window.prompt("Caption (optional):", "") ?? "";
+        insertFigureAtSelection(src, caption);
+      };
+      reader.readAsDataURL(file);
+    },
+    [insertFigureAtSelection],
+  );
 
   // Apply format preset
   const applyPreset = (format: IEEEFormat) => {
@@ -320,6 +445,17 @@ export default function UniversalResearchFormatterPage() {
       shortcut: "",
       action: () => editor?.chain().focus().setTextAlign("justify").run(),
     },
+    { type: "divider" as const },
+    {
+      label: "Insert Figure (Upload)",
+      shortcut: "",
+      action: openImagePicker,
+    },
+    {
+      label: "Insert Figure (URL)",
+      shortcut: "",
+      action: insertImageByUrl,
+    },
   ];
 
   const runDeterministicFormat = useCallback(
@@ -377,9 +513,7 @@ export default function UniversalResearchFormatterPage() {
         const pipeRows = rows.map((tr) => {
           const cells = Array.from(tr.querySelectorAll("th, td"));
           return cells
-            .map((c) =>
-              (c.textContent || "").replace(/\s+/g, " ").trim(),
-            )
+            .map((c) => (c.textContent || "").replace(/\s+/g, " ").trim())
             .join(" | ");
         });
         const pipeTable = pipeRows.join("\n");
@@ -388,9 +522,7 @@ export default function UniversalResearchFormatterPage() {
         const rowTexts = rows.map((tr) => {
           const cells = Array.from(tr.querySelectorAll("th, td"));
           return cells
-            .map((c) =>
-              (c.textContent || "").replace(/\s+/g, " ").trim(),
-            )
+            .map((c) => (c.textContent || "").replace(/\s+/g, " ").trim())
             .join("");
         });
 
@@ -419,9 +551,7 @@ export default function UniversalResearchFormatterPage() {
       const end = textarea.selectionEnd;
       const currentValue = rawInput;
       const newValue =
-        currentValue.substring(0, start) +
-        result +
-        currentValue.substring(end);
+        currentValue.substring(0, start) + result + currentValue.substring(end);
       setRawInput(newValue);
 
       requestAnimationFrame(() => {
@@ -441,7 +571,9 @@ export default function UniversalResearchFormatterPage() {
     setFormatError(null);
 
     try {
-      const { result, estimatedPages } = runDeterministicFormat(rawInput.trim());
+      const { result, estimatedPages } = runDeterministicFormat(
+        rawInput.trim(),
+      );
 
       console.log("Format result:", {
         sectionCount: result.sectionCount,
@@ -521,6 +653,19 @@ export default function UniversalResearchFormatterPage() {
     if (node.type === "paragraph") {
       const text = (node.content ?? []).map(renderNode).join("");
       return text ? `${text}\n` : "";
+    }
+
+    if (node.type === "image") {
+      const caption = escapeLatex(node.attrs?.title ?? node.attrs?.alt ?? "");
+      return [
+        "\\begin{figure}[htbp]",
+        "\\centering",
+        "\\fbox{\\textit{Image in editor content}}",
+        caption ? `\\caption{${caption}}` : "",
+        "\\end{figure}",
+      ]
+        .filter(Boolean)
+        .join("\n");
     }
 
     if (node.type === "bulletList") {
@@ -637,7 +782,9 @@ export default function UniversalResearchFormatterPage() {
       } else {
         // Fallback: Use browser print if pdflatex not available
         if (response.error?.includes("pdflatex not found")) {
-          setExportStatus("pdflatex not found. Opening browser print dialog...");
+          setExportStatus(
+            "pdflatex not found. Opening browser print dialog...",
+          );
           setTimeout(() => {
             exportPDFViaBrowser();
           }, 1000);
@@ -838,6 +985,30 @@ export default function UniversalResearchFormatterPage() {
             text-indent: 0;
             margin: 8pt 0 4pt;
           }
+          .figure-block {
+            break-inside: avoid-column;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            margin: 8pt 0;
+            text-align: center;
+            width: 100%;
+          }
+          .figure-block img {
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: 140pt;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto 4pt;
+          }
+          .figure-caption {
+            text-align: center;
+            font-size: 8pt;
+            font-variant: small-caps;
+            text-indent: 0;
+            margin: 0;
+          }
           .algorithm-block {
             border: 1px solid #333;
             margin: 10pt 0;
@@ -910,6 +1081,14 @@ export default function UniversalResearchFormatterPage() {
 
   return (
     <div className="space-y-3 px-2 md:px-4 pb-16">
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageUpload}
+      />
+
       <PageHeader
         title="Universal Research Formatter"
         subtitle="Conference-template-A4 strict formatting with live preview and export options."
@@ -947,15 +1126,19 @@ export default function UniversalResearchFormatterPage() {
                   key={key}
                   onClick={() => applyPreset(key)}
                   disabled={isDisabled}
-                  className={`rounded-lg border p-3 text-left transition-all ${settings.format === key
-                    ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
-                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
-                    } ${isDisabled ? "cursor-not-allowed opacity-60 hover:border-zinc-800" : ""}`}
+                  className={`rounded-lg border p-3 text-left transition-all ${
+                    settings.format === key
+                      ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
+                      : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                  } ${isDisabled ? "cursor-not-allowed opacity-60 hover:border-zinc-800" : ""}`}
                 >
                   <div className="flex items-center gap-2">
                     <div
-                      className={`h-3 w-3 rounded-full ${settings.format === key ? "bg-indigo-500" : "bg-zinc-700"
-                        }`}
+                      className={`h-3 w-3 rounded-full ${
+                        settings.format === key
+                          ? "bg-indigo-500"
+                          : "bg-zinc-700"
+                      }`}
                     />
                     <span className="font-semibold text-sm text-zinc-100">
                       {preset.name}
@@ -978,7 +1161,7 @@ export default function UniversalResearchFormatterPage() {
                     )}
                   </div>
                 </button>
-              )
+              );
             },
           )}
         </div>
@@ -1065,28 +1248,31 @@ Introduction content...
         <div className="flex flex-wrap gap-1">
           <button
             onClick={() => editor?.chain().focus().toggleBold().run()}
-            className={`rounded px-3 py-1.5 text-xs font-bold transition-colors ${editor?.isActive("bold")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-3 py-1.5 text-xs font-bold transition-colors ${
+              editor?.isActive("bold")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             B
           </button>
           <button
             onClick={() => editor?.chain().focus().toggleItalic().run()}
-            className={`rounded px-3 py-1.5 text-xs italic transition-colors ${editor?.isActive("italic")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-3 py-1.5 text-xs italic transition-colors ${
+              editor?.isActive("italic")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             I
           </button>
           <button
             onClick={() => editor?.chain().focus().toggleUnderline().run()}
-            className={`rounded px-3 py-1.5 text-xs underline transition-colors ${editor?.isActive("underline")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-3 py-1.5 text-xs underline transition-colors ${
+              editor?.isActive("underline")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             U
           </button>
@@ -1095,10 +1281,11 @@ Introduction content...
             onClick={() =>
               editor?.chain().focus().toggleHeading({ level: 1 }).run()
             }
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("heading", { level: 1 })
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("heading", { level: 1 })
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             H1
           </button>
@@ -1106,10 +1293,11 @@ Introduction content...
             onClick={() =>
               editor?.chain().focus().toggleHeading({ level: 2 }).run()
             }
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("heading", { level: 2 })
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("heading", { level: 2 })
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             H2
           </button>
@@ -1117,48 +1305,53 @@ Introduction content...
             onClick={() =>
               editor?.chain().focus().toggleHeading({ level: 3 }).run()
             }
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("heading", { level: 3 })
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("heading", { level: 3 })
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             H3
           </button>
           <div className="w-px bg-zinc-700 mx-1" />
           <button
             onClick={() => editor?.chain().focus().toggleBulletList().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("bulletList")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("bulletList")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             • List
           </button>
           <button
             onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("orderedList")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("orderedList")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             1. List
           </button>
           <div className="w-px bg-zinc-700 mx-1" />
           <button
             onClick={() => editor?.chain().focus().toggleSubscript().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("subscript")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("subscript")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             X₂
           </button>
           <button
             onClick={() => editor?.chain().focus().toggleSuperscript().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${editor?.isActive("superscript")
-              ? "bg-indigo-600 text-white"
-              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-              }`}
+            className={`rounded px-2 py-1.5 text-xs transition-colors ${
+              editor?.isActive("superscript")
+                ? "bg-indigo-600 text-white"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            }`}
           >
             X²
           </button>
@@ -1182,6 +1375,19 @@ Introduction content...
             className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
           >
             ≡
+          </button>
+          <div className="w-px bg-zinc-700 mx-1" />
+          <button
+            onClick={openImagePicker}
+            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+          >
+            🖼 Upload
+          </button>
+          <button
+            onClick={insertImageByUrl}
+            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+          >
+            🔗 URL
           </button>
         </div>
       </SectionCard>
@@ -1212,7 +1418,10 @@ Introduction content...
               }}
             >
               {editor ? (
-                <EditorContent editor={editor} className="focus:outline-none editor-content" />
+                <EditorContent
+                  editor={editor}
+                  className="focus:outline-none editor-content"
+                />
               ) : (
                 <div className="text-zinc-500 animate-pulse p-4">
                   Loading editor...
@@ -1224,7 +1433,11 @@ Introduction content...
           {/* Word count indicator */}
           <div className="flex justify-between items-center mt-3 px-2">
             <span className="text-[11px] text-zinc-500">
-              {editor?.getText().split(/\s+/).filter(w => w.length > 0).length || 0} words
+              {editor
+                ?.getText()
+                .split(/\s+/)
+                .filter((w) => w.length > 0).length || 0}{" "}
+              words
             </span>
             <span className="text-[11px] text-zinc-400">
               Edit freely, then click Refresh Preview →
@@ -1254,7 +1467,9 @@ Introduction content...
                   Formatting...
                 </>
               ) : (
-                <>{previewStale ? "🔄 Refresh Preview" : "🔄 Refresh Preview"}</>
+                <>
+                  {previewStale ? "🔄 Refresh Preview" : "🔄 Refresh Preview"}
+                </>
               )}
             </button>
             {previewStale && ieeeHtml && (
@@ -1308,10 +1523,18 @@ Introduction content...
                       className="ieee-preview-html"
                     />
                   ) : (
-                    <div className="text-zinc-400 text-center py-20 text-[10pt]" style={{ columnSpan: "all" }}>
+                    <div
+                      className="text-zinc-400 text-center py-20 text-[10pt]"
+                      style={{ columnSpan: "all" }}
+                    >
                       <div className="text-3xl mb-2 opacity-30">📝</div>
-                      <p>Format your paper first, then click <strong>Refresh Preview</strong></p>
-                      <p className="text-[8pt] mt-1 opacity-70">Preview updates when you click the button above</p>
+                      <p>
+                        Format your paper first, then click{" "}
+                        <strong>Refresh Preview</strong>
+                      </p>
+                      <p className="text-[8pt] mt-1 opacity-70">
+                        Preview updates when you click the button above
+                      </p>
                     </div>
                   )}
                 </div>
@@ -1349,9 +1572,13 @@ Introduction content...
             {/* Format specs */}
             <div className="mt-4 p-3 bg-zinc-800/80 rounded-xl border border-zinc-700">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] text-zinc-400 font-medium">IEEE Format Specs</span>
+                <span className="text-[10px] text-zinc-400 font-medium">
+                  IEEE Format Specs
+                </span>
                 <div className="flex items-center gap-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${previewStale ? "bg-amber-400 animate-pulse" : "bg-emerald-500"}`}></div>
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full ${previewStale ? "bg-amber-400 animate-pulse" : "bg-emerald-500"}`}
+                  ></div>
                   <span className="text-[9px] text-zinc-500">
                     {previewStale ? "Stale" : "Current"}
                   </span>
@@ -1375,7 +1602,10 @@ Introduction content...
                 <div className="flex items-center gap-1.5">
                   <span className="text-zinc-500">Words:</span>
                   <span className="text-zinc-300">
-                    {editor?.getText().split(/\s+/).filter(w => w.length > 0).length || 0}
+                    {editor
+                      ?.getText()
+                      .split(/\s+/)
+                      .filter((w) => w.length > 0).length || 0}
                   </span>
                 </div>
               </div>
@@ -1387,10 +1617,11 @@ Introduction content...
       {/* Export Status */}
       {exportStatus && (
         <div
-          className={`fixed bottom-20 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2 text-sm font-medium shadow-lg ${exportStatus.includes("failed")
-            ? "bg-red-900/90 text-red-100"
-            : "bg-emerald-900/90 text-emerald-100"
-            }`}
+          className={`fixed bottom-20 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2 text-sm font-medium shadow-lg ${
+            exportStatus.includes("failed")
+              ? "bg-red-900/90 text-red-100"
+              : "bg-emerald-900/90 text-emerald-100"
+          }`}
         >
           {exportStatus}
         </div>

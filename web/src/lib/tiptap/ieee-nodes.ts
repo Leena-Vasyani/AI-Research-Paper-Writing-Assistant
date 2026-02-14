@@ -8,6 +8,7 @@ type ParagraphRole =
   | "keywords"
   | "reference"
   | "tableCaption"
+  | "figureCaption"
   | "copyright"
   | "authorName"
   | "authorLine"
@@ -15,7 +16,7 @@ type ParagraphRole =
   | "algoLine";
 
 const CONTAINER_CLASS_REGEX =
-  /\b(?:author-grid|author-block|table-wrapper|algorithm-block|algo-body)\b/;
+  /\b(?:author-grid|author-block|table-wrapper|algorithm-block|algo-body|figure-block)\b/;
 
 export const IeeeContainer = Node.create({
   name: "ieeeContainer",
@@ -42,6 +43,7 @@ export const IeeeContainer = Node.create({
       { tag: "div.table-wrapper" },
       { tag: "div.algorithm-block" },
       { tag: "div.algo-body" },
+      { tag: "div.figure-block" },
     ];
   },
 
@@ -74,12 +76,16 @@ export const IeeeHeading = Heading.extend({
     const classes: string[] = [];
 
     if (level === 1) {
-      classes.push(node.attrs.ieeeRole === "title" ? "paper-title" : "ieee-heading");
+      classes.push(
+        node.attrs.ieeeRole === "title" ? "paper-title" : "ieee-heading",
+      );
     } else if (level === 2) {
       classes.push("ieee-subheading");
     }
 
-    const className = [HTMLAttributes.class, ...classes].filter(Boolean).join(" ");
+    const className = [HTMLAttributes.class, ...classes]
+      .filter(Boolean)
+      .join(" ");
     return [
       `h${level}`,
       mergeAttributes(HTMLAttributes, className ? { class: className } : {}),
@@ -98,7 +104,10 @@ export const IeeeParagraph = Paragraph.extend({
           if (element.classList.contains("abstract-text")) return "abstract";
           if (element.classList.contains("index-terms")) return "keywords";
           if (element.classList.contains("reference-item")) return "reference";
-          if (element.classList.contains("table-caption")) return "tableCaption";
+          if (element.classList.contains("table-caption"))
+            return "tableCaption";
+          if (element.classList.contains("figure-caption"))
+            return "figureCaption";
           if (element.classList.contains("ieee-copyright")) return "copyright";
           if (element.classList.contains("author-name")) return "authorName";
           if (element.classList.contains("author-line")) return "authorLine";
@@ -109,7 +118,8 @@ export const IeeeParagraph = Paragraph.extend({
       },
       noIndent: {
         default: false,
-        parseHTML: (element: HTMLElement) => element.classList.contains("no-indent"),
+        parseHTML: (element: HTMLElement) =>
+          element.classList.contains("no-indent"),
       },
     };
   },
@@ -123,13 +133,16 @@ export const IeeeParagraph = Paragraph.extend({
     if (role === "keywords") classes.push("index-terms");
     if (role === "reference") classes.push("reference-item");
     if (role === "tableCaption") classes.push("table-caption");
+    if (role === "figureCaption") classes.push("figure-caption");
     if (role === "copyright") classes.push("ieee-copyright");
     if (role === "authorName") classes.push("author-name");
     if (role === "authorLine") classes.push("author-line");
     if (role === "algoTitle") classes.push("algo-title");
     if (role === "algoLine") classes.push("algo-line");
 
-    const className = [HTMLAttributes.class, ...classes].filter(Boolean).join(" ");
+    const className = [HTMLAttributes.class, ...classes]
+      .filter(Boolean)
+      .join(" ");
     return [
       "p",
       mergeAttributes(HTMLAttributes, className ? { class: className } : {}),
