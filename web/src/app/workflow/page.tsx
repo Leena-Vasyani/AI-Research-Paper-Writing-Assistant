@@ -7,6 +7,7 @@ import SectionCard from "@/components/SectionCard";
 import StatCard from "@/components/StatCard";
 import { api } from "@/lib/api";
 import type {
+  CitationCandidate,
   ComprehensiveSummary,
   Draft,
   Paper,
@@ -34,6 +35,14 @@ export default function WorkflowPage() {
   );
   const [copied, setCopied] = useState<string | null>(null);
   const [openStep, setOpenStep] = useState<StepId>("topic");
+  const [citationClaim, setCitationClaim] = useState("");
+  const [citationStyle, setCitationStyle] = useState<"apa" | "ieee" | "mla">(
+    "ieee",
+  );
+  const [citationCandidates, setCitationCandidates] = useState<
+    CitationCandidate[]
+  >([]);
+  const [citationInfo, setCitationInfo] = useState<string | null>(null);
 
   const keywords = useMemo(() => queryResult?.keywords ?? [], [queryResult]);
 
@@ -227,6 +236,37 @@ export default function WorkflowPage() {
         research_topic: topic,
       });
       setPlagiarism(result);
+    } catch (e: unknown) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleSuggestCitation = async () => {
+    const claim = citationClaim.trim();
+    if (!claim) {
+      setError("Enter a claim sentence to suggest citations.");
+      return;
+    }
+    setError(null);
+    setLoading("Suggesting citations...");
+    setCitationInfo(null);
+    try {
+      const result = await api.suggestCitation({
+        claim_text: claim,
+        citation_style: citationStyle,
+        max_candidates: 3,
+        keywords,
+        provided_papers: papers,
+        auto_retrieve: papers.length === 0,
+        retrieve_max_results: 8,
+      });
+      setCitationCandidates(result.candidates ?? []);
+      const noteText = result.notes?.length ? ` • ${result.notes[0]}` : "";
+      setCitationInfo(
+        `Found ${result.candidates?.length ?? 0} candidate(s) with confidence ${Math.round((result.confidence ?? 0) * 100)}%${noteText}`,
+      );
     } catch (e: unknown) {
       setError(getErrorMessage(e));
     } finally {
@@ -639,6 +679,68 @@ export default function WorkflowPage() {
           {loading && <div className="text-indigo-300">{loading}</div>}
           {error && <div className="text-rose-400">{error}</div>}
           {!loading && !error && <div className="text-zinc-500">Idle</div>}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Citation assistant"
+        description="Suggest citations for a claim using retrieved papers and RAG fallback."
+      >
+        <div className="space-y-3">
+          <textarea
+            value={citationClaim}
+            onChange={(e) => setCitationClaim(e.target.value)}
+            rows={3}
+            placeholder="Enter a claim sentence, e.g., Transformer models improve long-context reasoning under retrieval augmentation."
+            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+          />
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-zinc-400">Style</label>
+            <select
+              value={citationStyle}
+              onChange={(e) =>
+                setCitationStyle(e.target.value as "apa" | "ieee" | "mla")
+              }
+              className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs"
+            >
+              <option value="ieee">IEEE</option>
+              <option value="apa">APA</option>
+              <option value="mla">MLA</option>
+            </select>
+            <button
+              onClick={handleSuggestCitation}
+              disabled={!citationClaim.trim() || !!loading}
+              className="rounded-lg bg-cyan-500 px-3 py-1 text-xs font-medium hover:bg-cyan-400 disabled:opacity-50"
+            >
+              Suggest citation
+            </button>
+          </div>
+          {citationInfo && (
+            <div className="text-xs text-cyan-300">{citationInfo}</div>
+          )}
+          {!!citationCandidates.length && (
+            <div className="space-y-2">
+              {citationCandidates.map((candidate, idx) => (
+                <div
+                  key={`${candidate.title}-${idx}`}
+                  className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs"
+                >
+                  <div className="text-zinc-200">
+                    [{idx + 1}] {candidate.title || "Untitled"}
+                  </div>
+                  <div className="mt-1 text-zinc-400">
+                    {candidate.authors || "Unknown authors"} •{" "}
+                    {candidate.year || "n.d."} •{" "}
+                    {Math.round((candidate.relevance_score || 0) * 100)}%
+                  </div>
+                  <div className="mt-1 text-zinc-300">{candidate.in_text}</div>
+                  <div className="mt-1 text-zinc-500 break-all">
+                    {candidate.reference}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </SectionCard>
     </div>

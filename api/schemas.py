@@ -12,6 +12,7 @@ class RetrieveRequest(BaseModel):
     max_results: int = Field(5, ge=1, le=20)
     use_multi_query: bool = False
     subtopics: Optional[Dict[str, List[str]]] = None
+    sources: Optional[List[str]] = None
 
 
 class SummarizeRequest(BaseModel):
@@ -44,7 +45,21 @@ class PlagiarismRequest(BaseModel):
 
 class RefineBlockRequest(BaseModel):
     text: str = Field(..., description="Block text to refine")
-    mode: str = Field("refine", description="expand|academic|refine")
+    mode: str = Field("refine", description="expand|academic|refine|anti_plagiarism")
+    source_texts: List[str] = Field(
+        default_factory=list,
+        description="Optional source texts used to reduce lexical overlap",
+    )
+
+
+class AutocompleteRequest(BaseModel):
+    text: str = Field("", description="Current editor text")
+    max_suggestions: int = Field(3, ge=1, le=8)
+
+
+class AutocompleteResponse(BaseModel):
+    suggestions: List[str] = Field(default_factory=list)
+    provider: str = Field("fallback")
 
 
 class DiagramRequest(BaseModel):
@@ -88,6 +103,51 @@ class FormatIEEERequest(BaseModel):
 
 class CompilePDFRequest(BaseModel):
     latex_code: str = Field(..., description="LaTeX code to compile to PDF")
+
+
+class CitationSuggestRequest(BaseModel):
+    claim_text: str = Field(..., description="Claim sentence/selection to support with citations")
+    context_text: str = Field("", description="Optional surrounding context for better matching")
+    citation_style: str = Field("apa", description="Citation style: apa|ieee|mla")
+    max_candidates: int = Field(3, ge=1, le=10)
+    keywords: List[str] = Field(default_factory=list, description="Optional retrieval keywords")
+    provided_papers: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Optional papers to match against; retrieval used when empty",
+    )
+    auto_retrieve: bool = Field(
+        True,
+        description="Automatically retrieve papers if provided_papers is empty",
+    )
+    retrieve_max_results: int = Field(8, ge=1, le=20)
+
+
+class CitationFormatRequest(BaseModel):
+    paper: Dict[str, Any] = Field(..., description="Paper metadata used for citation formatting")
+    citation_style: str = Field("apa", description="Citation style: apa|ieee|mla")
+    citation_number: Optional[int] = Field(None, ge=1)
+
+
+class CitationCandidate(BaseModel):
+    title: str = ""
+    authors: str = ""
+    year: str = ""
+    source: str = ""
+    doi_or_url: str = ""
+    relevance_score: float = 0.0
+    citation_type: str = "general"
+    in_text: str = ""
+    reference: str = ""
+
+
+class CitationSuggestResponse(BaseModel):
+    success: bool = True
+    claim_text: str = ""
+    citation_style: str = "apa"
+    candidates: List[CitationCandidate] = Field(default_factory=list)
+    confidence: float = 0.0
+    source_count: int = 0
+    notes: List[str] = Field(default_factory=list)
 
 
 class ExtractTextResponse(BaseModel):

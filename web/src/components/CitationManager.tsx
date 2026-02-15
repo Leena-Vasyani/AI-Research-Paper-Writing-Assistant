@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import type { CitationCandidate } from "@/lib/types";
 
 export type Citation = {
   id: string;
@@ -15,6 +16,11 @@ interface CitationManagerProps {
   onUpdate: (id: string, patch: Partial<Citation>) => void;
   onDelete: (id: string) => void;
   onInsert: (id: string) => void;
+  onSuggestClaim?: (claimText: string) => void;
+  onApplySuggestion?: (candidate: CitationCandidate) => void;
+  suggestions?: CitationCandidate[];
+  isSuggesting?: boolean;
+  suggestionStatus?: string | null;
 }
 
 export default function CitationManager({
@@ -23,8 +29,14 @@ export default function CitationManager({
   onUpdate,
   onDelete,
   onInsert,
+  onSuggestClaim,
+  onApplySuggestion,
+  suggestions = [],
+  isSuggesting = false,
+  suggestionStatus,
 }: CitationManagerProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [claimInput, setClaimInput] = useState("");
 
   const formatCitation = (citation: Citation, index: number): string => {
     // IEEE format: [1] A. Author, "Title," Venue, Year.
@@ -49,6 +61,64 @@ export default function CitationManager({
           + Add Citation
         </button>
       </div>
+
+      {onSuggestClaim && (
+        <div className="space-y-2 rounded-lg border border-cyan-900/60 bg-cyan-950/20 p-3">
+          <div className="text-[11px] uppercase text-cyan-300">
+            AI Citation Suggestions
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={claimInput}
+              onChange={(e) => setClaimInput(e.target.value)}
+              placeholder="Enter claim text (or paste sentence)"
+              className="flex-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+            />
+            <button
+              onClick={() => onSuggestClaim(claimInput.trim())}
+              disabled={isSuggesting || !claimInput.trim()}
+              className="rounded-md border border-cyan-700 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-900/30 disabled:opacity-50"
+            >
+              {isSuggesting ? "Searching..." : "Suggest"}
+            </button>
+          </div>
+          {suggestionStatus && (
+            <div className="text-[11px] text-cyan-200">{suggestionStatus}</div>
+          )}
+          {!!suggestions.length && (
+            <div className="space-y-2">
+              {suggestions.map((candidate, idx) => (
+                <div
+                  key={`${candidate.title}-${idx}`}
+                  className="rounded-md border border-zinc-800 bg-zinc-900/50 p-2"
+                >
+                  <div className="text-xs text-zinc-200">
+                    [{idx + 1}] {candidate.title || "Untitled"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-400">
+                    {candidate.authors || "Unknown authors"} •{" "}
+                    {candidate.year || "n.d."} •{" "}
+                    {Math.round((candidate.relevance_score || 0) * 100)}%
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-500 break-all">
+                    {candidate.reference}
+                  </div>
+                  {onApplySuggestion && (
+                    <div className="mt-2">
+                      <button
+                        onClick={() => onApplySuggestion(candidate)}
+                        className="rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-200 hover:bg-zinc-800"
+                      >
+                        Use this citation
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {citations.length === 0 ? (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-center text-xs text-zinc-500">

@@ -130,6 +130,11 @@ export default function AgentHubPage() {
   const [topic, setTopic] = useState("");
   const [topKeywords, setTopKeywords] = useState(8);
   const [maxPapers, setMaxPapers] = useState(5);
+  const [retrieveSources, setRetrieveSources] = useState<string[]>([
+    "arxiv",
+    "openalex",
+    "semantic_scholar",
+  ]);
 
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -243,6 +248,7 @@ export default function AgentHubPage() {
         max_results: maxPapers,
         use_multi_query: true,
         subtopics: queryResult?.subtopics,
+        sources: retrieveSources,
       });
       setPapers(result);
       setPapersInput(pretty(result));
@@ -712,6 +718,39 @@ export default function AgentHubPage() {
               >
                 Run Retrieval
               </button>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+              <div className="mb-2 text-xs text-zinc-400">Sources</div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {[
+                  ["arxiv", "arXiv"],
+                  ["openalex", "OpenAlex"],
+                  ["semantic_scholar", "Semantic Scholar"],
+                ].map(([key, label]) => {
+                  const checked = retrieveSources.includes(key);
+                  return (
+                    <label
+                      key={key}
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-700 px-3 py-1 text-zinc-300"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          setRetrieveSources((prev) => {
+                            if (e.target.checked) {
+                              return prev.includes(key) ? prev : [...prev, key];
+                            }
+                            const next = prev.filter((s) => s !== key);
+                            return next.length ? next : ["arxiv"];
+                          });
+                        }}
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
             </div>
             <textarea
               rows={8}

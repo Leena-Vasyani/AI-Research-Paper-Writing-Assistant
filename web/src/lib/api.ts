@@ -1,4 +1,7 @@
 import type {
+  AutocompleteResult,
+  CitationFormatResult,
+  CitationSuggestResult,
   ComprehensiveSummary,
   Draft,
   ExtractTextResult,
@@ -71,6 +74,7 @@ export const api = {
     max_results: number;
     use_multi_query: boolean;
     subtopics?: Record<string, string[]>;
+    sources?: string[];
   }) =>
     request<Paper[]>("/api/retrieve", {
       method: "POST",
@@ -102,9 +106,20 @@ export const api = {
     }),
   refineBlock: (payload: {
     text: string;
-    mode: "expand" | "academic" | "refine";
+    mode: "expand" | "academic" | "refine" | "anti_plagiarism";
+    source_texts?: string[];
   }) =>
-    request<{ refined_text: string; provider: string }>("/api/refine-block", {
+    request<{
+      refined_text: string;
+      provider: string;
+      overlap_score?: number;
+      warnings?: string[];
+    }>("/api/refine-block", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  autocomplete: (payload: { text: string; max_suggestions?: number }) =>
+    request<AutocompleteResult>("/api/autocomplete", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -121,6 +136,29 @@ export const api = {
     }),
   convertToPseudocode: (payload: { code: string; algorithm_name?: string }) =>
     request<PseudocodeResult>("/api/pseudocode", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  suggestCitation: (payload: {
+    claim_text: string;
+    context_text?: string;
+    citation_style?: "apa" | "ieee" | "mla";
+    max_candidates?: number;
+    keywords?: string[];
+    provided_papers?: Paper[];
+    auto_retrieve?: boolean;
+    retrieve_max_results?: number;
+  }) =>
+    request<CitationSuggestResult>("/api/citation/suggest", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  formatCitation: (payload: {
+    paper: Paper;
+    citation_style?: "apa" | "ieee" | "mla";
+    citation_number?: number;
+  }) =>
+    request<CitationFormatResult>("/api/citation/format", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

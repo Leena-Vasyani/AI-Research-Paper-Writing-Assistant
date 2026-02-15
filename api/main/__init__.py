@@ -23,6 +23,7 @@ from core_agents.query_agent import ScientificQueryAgent
 from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
 from core_agents.plagiarism_agent import PlagiarismDetectionAgent
+from core_agents.citation_agent import CitationAgent
 from core_agents.diagram_agent import DiagramAgent
 from core_agents.pseudocode_agent import PseudocodeAgent
 from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
@@ -34,8 +35,13 @@ from api.schemas import (
     DraftRequest,
     PlagiarismRequest,
     RefineBlockRequest,
+    AutocompleteRequest,
+    AutocompleteResponse,
     DiagramRequest,
     PseudocodeRequest,
+    CitationSuggestRequest,
+    CitationFormatRequest,
+    CitationSuggestResponse,
     FormatCommandRequest,
     FormatIEEERequest,
     CompilePDFRequest,
@@ -56,6 +62,7 @@ query_agent = ScientificQueryAgent()
 retrieval_agent = PaperRetrievalAgent()
 summarization_agent = PaperSummarizationAgent()
 plagiarism_agent = PlagiarismDetectionAgent()
+citation_agent = CitationAgent()
 diagram_agent = DiagramAgent()
 pseudocode_agent = PseudocodeAgent()
 
@@ -82,6 +89,68 @@ def _refine_with_gemini(prompt: str) -> str | None:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key or genai is None:
         return None
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": 0.3, "top_p": 0.9, "max_output_tokens": 400},
+        )
+        return response.text.strip() if response and response.text else None
+    except Exception:
+        return None
+
+
+def _autocomplete_with_groq(text: str, max_suggestions: int = 3) -> List[str] | None:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
+    prompt = (
+        "You are an academic writing autocomplete engine. "
+        "Return ONLY valid JSON object with key suggestions as a list of short continuation phrases. "
+        f"Provide at most {max_suggestions} suggestions, no numbering, no markdown.\n\n"
+        f"Context:\n{text[-1200:]}"
+    )
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            top_p=0.9,
+            max_tokens=160,
+        )
+        content = response.choices[0].message.content.strip()
+        data = _parse_json_block(content)
+        if not data:
+            return None
+        suggestions = data.get("suggestions", [])
+        if not isinstance(suggestions, list):
+            return None
+        return [str(s).strip() for s in suggestions if str(s).strip()][:max_suggestions]
+    except Exception:
+        return None
+
+
+def _max_ngram_overlap(text: str, source_texts: List[str], n: int = 6) -> float:
+    words = re.findall(r"\w+", text.lower())
+    if len(words) < n:
+        return 0.0
+    text_ngrams = {tuple(words[i:i + n]) for i in range(0, len(words) - n + 1)}
+    if not text_ngrams:
+        return 0.0
+    max_overlap = 0.0
+    for src in source_texts:
+        src_words = re.findall(r"\w+", (src or "").lower())
+        if len(src_words) < n:
+            continue
+        src_ngrams = {tuple(src_words[i:i + n]) for i in range(0, len(src_words) - n + 1)}
+        if not src_ngrams:
+            continue
+        overlap = len(text_ngrams.intersection(src_ngrams)) / max(len(text_ngrams), 1)
+        if overlap > max_overlap:
+            max_overlap = overlap
+    return round(max_overlap, 4)
 
 
 def _parse_json_block(text: str) -> Dict[str, Any] | None:
@@ -232,7 +301,11 @@ def retrieve_papers(req: RetrieveRequest) -> List[Dict[str, Any]]:
             return retrieval_agent.retrieve_papers_multi_query(
                 req.keywords, req.subtopics, max_results=req.max_results
             )
-        return retrieval_agent.retrieve_papers(req.keywords, max_results=req.max_results)
+        return retrieval_agent.retrieve_papers(
+            req.keywords,
+            max_results=req.max_results,
+            sources=req.sources,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -276,6 +349,182 @@ def plagiarism(req: PlagiarismRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _extract_keywords_from_claim(claim_text: str, max_keywords: int = 8) -> List[str]:
+    words = re.findall(r"[a-zA-Z][a-zA-Z-]{2,}", claim_text.lower())
+    stopwords = {
+        "the", "and", "for", "with", "that", "this", "from", "into", "were", "was",
+        "are", "have", "has", "had", "will", "would", "could", "should", "about", "their",
+        "there", "which", "while", "where", "when", "than", "then", "also", "using", "used",
+        "use", "over", "under", "between", "among", "research", "study", "studies", "paper",
+        "find", "shows", "show", "found", "suggest", "suggests", "indicate", "indicates",
+    }
+    counts: Dict[str, int] = {}
+    for word in words:
+        if word in stopwords:
+            continue
+        counts[word] = counts.get(word, 0) + 1
+    return [w for w, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:max_keywords]]
+
+
+@app.post("/api/citation/suggest", response_model=CitationSuggestResponse)
+def suggest_citation(req: CitationSuggestRequest) -> CitationSuggestResponse:
+    try:
+        claim_text = req.claim_text.strip()
+        if not claim_text:
+            raise HTTPException(status_code=400, detail="claim_text is required")
+
+        citation_style = req.citation_style.lower().strip() or "apa"
+        if citation_style not in {"apa", "ieee", "mla"}:
+            citation_style = "apa"
+
+        papers: List[Dict[str, Any]] = list(req.provided_papers)
+        notes: List[str] = []
+
+        if not papers and req.auto_retrieve:
+            keywords = req.keywords or _extract_keywords_from_claim(
+                f"{claim_text} {req.context_text}".strip(),
+                max_keywords=8,
+            )
+            if keywords:
+                papers = retrieval_agent.retrieve_papers(
+                    keywords,
+                    max_results=req.retrieve_max_results,
+                )
+            else:
+                notes.append("No usable keywords found for retrieval.")
+
+        if not papers:
+            return CitationSuggestResponse(
+                success=True,
+                claim_text=claim_text,
+                citation_style=citation_style,
+                candidates=[],
+                confidence=0.0,
+                source_count=0,
+                notes=notes + ["No source papers available for citation suggestion."],
+            )
+
+        ranked = citation_agent.find_relevant_citations(claim_text, papers)
+        ranked = ranked[: req.max_candidates]
+
+        if not ranked:
+            fallback_ranked = sorted(
+                papers,
+                key=lambda p: float(p.get("relevance_score", 0.0)),
+                reverse=True,
+            )[: req.max_candidates]
+            ranked = [
+                {
+                    "paper": p,
+                    "relevance_score": float(p.get("relevance_score", 0.0)),
+                    "citation_type": "general",
+                }
+                for p in fallback_ranked
+            ]
+            if ranked:
+                notes.append(
+                    "Strict claim matching found no strong hit; returning best retrieved sources."
+                )
+
+        candidates = []
+        for idx, item in enumerate(ranked, start=1):
+            paper = item.get("paper", {})
+            formatted = citation_agent.format_citation(
+                paper,
+                citation_style=citation_style,
+                citation_number=idx,
+            )
+            paper_info = formatted.get("paper_info", {})
+            doi_or_url = paper.get("doi") or paper.get("pdf_url") or paper.get("entry_id") or ""
+
+            candidates.append(
+                {
+                    "title": paper_info.get("title", ""),
+                    "authors": paper_info.get("authors", ""),
+                    "year": paper_info.get("year", ""),
+                    "source": paper_info.get("source", ""),
+                    "doi_or_url": doi_or_url,
+                    "relevance_score": float(item.get("relevance_score", 0.0)),
+                    "citation_type": item.get("citation_type", "general"),
+                    "in_text": formatted.get("in_text", ""),
+                    "reference": formatted.get("reference", ""),
+                }
+            )
+
+        confidence = max((c["relevance_score"] for c in candidates), default=0.0)
+        if confidence < 0.45:
+            notes.append("Low confidence citation suggestions; manual verification recommended.")
+
+        return CitationSuggestResponse(
+            success=True,
+            claim_text=claim_text,
+            citation_style=citation_style,
+            candidates=candidates,
+            confidence=confidence,
+            source_count=len(papers),
+            notes=notes,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/citation/format")
+def format_citation(req: CitationFormatRequest) -> Dict[str, Any]:
+    try:
+        citation_style = req.citation_style.lower().strip() or "apa"
+        if citation_style not in {"apa", "ieee", "mla"}:
+            citation_style = "apa"
+        return citation_agent.format_citation(
+            req.paper,
+            citation_style=citation_style,
+            citation_number=req.citation_number,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/autocomplete", response_model=AutocompleteResponse)
+def autocomplete(req: AutocompleteRequest) -> AutocompleteResponse:
+    try:
+        text = (req.text or "").strip()
+        if not text:
+            return AutocompleteResponse(
+                suggestions=[
+                    "This study demonstrates that",
+                    "The results indicate that",
+                    "A key contribution is",
+                ][: req.max_suggestions],
+                provider="fallback",
+            )
+
+        suggestions = _autocomplete_with_groq(text, req.max_suggestions)
+        provider = "groq"
+
+        if not suggestions:
+            tail = " ".join(text.lower().split()[-4:])
+            base = [
+                "This study demonstrates that",
+                "The results indicate that",
+                "A key contribution is",
+                "These findings suggest that",
+                "Future work should",
+            ]
+            if "method" in tail or "approach" in tail:
+                base = [
+                    "The proposed method improves",
+                    "This approach achieves",
+                    "Empirical evaluation shows",
+                ]
+            suggestions = base[: req.max_suggestions]
+            provider = "fallback"
+
+        return AutocompleteResponse(suggestions=suggestions, provider=provider)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/refine-block")
 def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
     try:
@@ -284,6 +533,10 @@ def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
             "expand": "Expand the text into a well-structured paragraph.",
             "academic": "Rewrite the text in formal academic tone.",
             "refine": "Refine clarity and flow without changing meaning.",
+            "anti_plagiarism": (
+                "Rewrite in formal academic tone while substantially changing wording and sentence structure "
+                "to minimize phrase overlap. Keep the meaning unchanged."
+            ),
         }.get(mode, "Refine clarity and flow without changing meaning.")
 
         prompt = (
@@ -301,7 +554,28 @@ def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
             output = req.text.strip()
             provider = "fallback"
 
-        return {"refined_text": output, "provider": provider}
+        warnings: List[str] = []
+        overlap_score = 0.0
+        if req.source_texts:
+            overlap_score = _max_ngram_overlap(output, req.source_texts, n=6)
+            if overlap_score >= 0.18:
+                warnings.append("High lexical overlap detected; applying stronger paraphrase.")
+                strengthen_prompt = (
+                    "Rewrite again with lower lexical overlap. Use different sentence structure and synonym substitutions. "
+                    "Do not change factual meaning. Return only rewritten text.\n\n"
+                    f"Text:\n{output}"
+                )
+                stronger = _refine_with_groq(strengthen_prompt) or _refine_with_gemini(strengthen_prompt)
+                if stronger:
+                    output = stronger
+                    overlap_score = _max_ngram_overlap(output, req.source_texts, n=6)
+
+        return {
+            "refined_text": output,
+            "provider": provider,
+            "overlap_score": overlap_score,
+            "warnings": warnings,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

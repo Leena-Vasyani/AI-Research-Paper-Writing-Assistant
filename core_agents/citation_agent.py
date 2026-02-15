@@ -127,7 +127,7 @@ class CitationAgent:
         score += abstract_score * 0.3
         
         # Check relevance score from retrieval (if available)
-        relevance = paper.get('relevance', 0.0)
+        relevance = paper.get('relevance_score', paper.get('relevance', 0.0))
         score += relevance * 0.2
         
         # Check recency (prefer newer papers)
@@ -360,15 +360,16 @@ class CitationAgent:
             
             # Get plagiarism flags for this section if available
             section_plagiarism = {}
-            if plagiarism_results and 'section_analysis' in plagiarism_results:
-                section_data = plagiarism_results['section_analysis'].get(section_name, {})
+            if plagiarism_results and ('section_analysis' in plagiarism_results or 'section_analyses' in plagiarism_results):
+                analyses = plagiarism_results.get('section_analysis', plagiarism_results.get('section_analyses', {}))
+                section_data = analyses.get(section_name, {})
                 flagged = section_data.get('flagged_sentences', [])
                 
                 # Create mapping of sentences to their source papers
                 for flag in flagged:
                     sentence = flag.get('sentence', '')
-                    source = flag.get('source', '')
-                    similarity = flag.get('similarity', 0)
+                    source = flag.get('source', flag.get('source_match', ''))
+                    similarity = flag.get('similarity', flag.get('similarity_score', 0))
                     section_plagiarism[sentence] = {
                         'source': source,
                         'similarity': similarity

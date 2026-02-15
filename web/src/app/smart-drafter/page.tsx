@@ -11,6 +11,7 @@ import SectionCard from "@/components/SectionCard";
 import TableInsertDialog from "@/components/TableInsertDialog";
 import EquationEditor from "@/components/EquationEditor";
 import CitationManager, { Citation } from "@/components/CitationManager";
+import type { CitationCandidate } from "@/lib/types";
 import { Document, Packer, Paragraph } from "docx";
 import wordList from "word-list-json";
 import { Plugin } from "prosemirror-state";
@@ -27,11 +28,17 @@ export default function SmartDrafterPage() {
   const [error, setError] = useState<string | null>(null);
   const [liveText, setLiveText] = useState<string>("");
   const [autocomplete, setAutocomplete] = useState<string[]>([]);
+  const [autocompleteProvider, setAutocompleteProvider] = useState("fallback");
   const [misspellings, setMisspellings] = useState<
     { word: string; suggestions: string[] }[]
   >([]);
   const [showTableDialog, setShowTableDialog] = useState(false);
   const [showEquationEditor, setShowEquationEditor] = useState(false);
+  const [citationStatus, setCitationStatus] = useState<string | null>(null);
+  const [suggestedCitations, setSuggestedCitations] = useState<
+    CitationCandidate[]
+  >([]);
+  const [isSuggestingCitation, setIsSuggestingCitation] = useState(false);
   const wordSet = useMemo(() => new Set(wordList), []);
   const wordIndex = useMemo(() => buildWordIndex(wordList), []);
 
@@ -80,7 +87,6 @@ export default function SmartDrafterPage() {
     const update = () => {
       const text = editor.getText() ?? "";
       setLiveText(text);
-      setAutocomplete(getAutocomplete(text));
     };
     update();
     editor.on("update", update);
@@ -88,6 +94,26 @@ export default function SmartDrafterPage() {
       editor.off("update", update);
     };
   }, [editor]);
+
+  useEffect(() => {
+    const text = liveText.trim();
+    const timer = setTimeout(async () => {
+      if (!text) {
+        setAutocomplete([]);
+        setAutocompleteProvider("fallback");
+        return;
+      }
+      try {
+        const result = await api.autocomplete({ text, max_suggestions: 3 });
+        setAutocomplete(result.suggestions || []);
+        setAutocompleteProvider(result.provider || "fallback");
+      } catch {
+        setAutocomplete(getAutocomplete(text));
+        setAutocompleteProvider("fallback");
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [liveText]);
 
   useEffect(() => {
     const words = Array.from(
@@ -179,7 +205,9 @@ export default function SmartDrafterPage() {
     editor.chain().focus().insertContent(content).run();
   };
 
-  const refineSelection = async (mode: "expand" | "academic" | "refine") => {
+  const refineSelection = async (
+    mode: "expand" | "academic" | "refine" | "anti_plagiarism",
+  ) => {
     if (!editor) return;
     const selectedText = editor.state.doc.textBetween(
       editor.state.selection.from,
@@ -191,7 +219,14 @@ export default function SmartDrafterPage() {
     setStatus(`Refining (${mode})...`);
     setError(null);
     try {
-      const result = await api.refineBlock({ text, mode });
+      const result = await api.refineBlock({
+        text,
+        mode,
+        source_texts:
+          mode === "anti_plagiarism"
+            ? citations.map((c) => [c.title, c.note].join(" ")).filter(Boolean)
+            : [],
+      });
       if (selectedText.trim()) {
         editor.commands.insertContent(result.refined_text);
       } else {
@@ -199,12 +234,106 @@ export default function SmartDrafterPage() {
           result.refined_text.replace(/\n/g, "<br />"),
         );
       }
-      setStatus(`Refined with ${result.provider}`);
+      const overlapText =
+        typeof result.overlap_score === "number"
+          ? ` • overlap ${Math.round(result.overlap_score * 100)}%`
+          : "";
+      const warningText = result.warnings?.[0]
+        ? ` • ${result.warnings[0]}`
+        : "";
+      setStatus(`Refined with ${result.provider}${overlapText}${warningText}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Refine failed");
     } finally {
       setTimeout(() => setStatus(null), 1500);
     }
+  };
+
+  const detectClaimFromEditor = () => {
+    if (!editor) return "";
+    const selectedText = editor.state.doc.textBetween(
+      editor.state.selection.from,
+      editor.state.selection.to,
+      " ",
+    );
+    const fullText = editor.getText() ?? "";
+    const cursorPos = editor.state.selection.from;
+    const left = fullText.lastIndexOf(".", Math.max(0, cursorPos - 2));
+    const rightCandidate = fullText.indexOf(".", cursorPos);
+    const right = rightCandidate === -1 ? fullText.length : rightCandidate;
+    const sentenceAtCursor = fullText.slice(left + 1, right + 1).trim();
+    return selectedText.trim() || sentenceAtCursor;
+  };
+
+  const fetchCitationSuggestions = async (claim: string) => {
+    if (!claim) {
+      setError("Write or select a claim sentence before suggesting citation.");
+      return;
+    }
+
+    setError(null);
+    setCitationStatus("Searching citation sources...");
+    setIsSuggestingCitation(true);
+    setSuggestedCitations([]);
+
+    try {
+      const result = await api.suggestCitation({
+        claim_text: claim,
+        citation_style: "ieee",
+        max_candidates: 3,
+        auto_retrieve: true,
+        retrieve_max_results: 8,
+      });
+
+      if (!result.candidates?.length) {
+        setCitationStatus("No citation candidate found for selection.");
+        return;
+      }
+
+      setSuggestedCitations(result.candidates);
+      const noteText = result.notes?.length ? ` • ${result.notes[0]}` : "";
+      setCitationStatus(
+        `Found ${result.candidates.length} citation candidate(s) (confidence ${Math.round((result.confidence ?? 0) * 100)}%)${noteText}`,
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Citation suggestion failed");
+      setCitationStatus(null);
+    } finally {
+      setIsSuggestingCitation(false);
+    }
+  };
+
+  const applySuggestedCitation = (candidate: CitationCandidate) => {
+    if (!editor) return;
+    const citationId = crypto.randomUUID();
+    let citationIndex = citations.length + 1;
+
+    setCitations((prev) => {
+      citationIndex = prev.length + 1;
+      return [
+        ...prev,
+        {
+          id: citationId,
+          title: candidate.title || "",
+          authors: candidate.authors || "",
+          year: candidate.year || "",
+          venue: candidate.source || "",
+          note: [candidate.reference, candidate.doi_or_url]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ];
+    });
+
+    editor.chain().focus().insertContent(` [${citationIndex}]`).run();
+    setCitationStatus(
+      `Citation inserted from ${candidate.source || "retrieved source"}.`,
+    );
+  };
+
+  const suggestCitationFromSelection = async () => {
+    const claim = detectClaimFromEditor();
+    await fetchCitationSuggestions(claim);
   };
 
   const exportJson = () => {
@@ -352,6 +481,9 @@ export default function SmartDrafterPage() {
       </div>
 
       {status && <div className="text-xs text-emerald-300">{status}</div>}
+      {citationStatus && (
+        <div className="text-xs text-cyan-300">{citationStatus}</div>
+      )}
       {error && <div className="text-xs text-rose-400">{error}</div>}
 
       <SectionCard
@@ -386,6 +518,18 @@ export default function SmartDrafterPage() {
             className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
           >
             Refine
+          </button>
+          <button
+            onClick={() => refineSelection("anti_plagiarism")}
+            className="rounded-lg border border-amber-700 px-3 py-1 text-xs text-amber-200 hover:bg-amber-900/30"
+          >
+            Anti-plagiarism Academic
+          </button>
+          <button
+            onClick={suggestCitationFromSelection}
+            className="rounded-lg border border-cyan-700 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-900/30"
+          >
+            Suggest Citation
           </button>
         </div>
       </SectionCard>
@@ -495,6 +639,9 @@ export default function SmartDrafterPage() {
         title="Autocomplete"
         description="Quick academic completions."
       >
+        <div className="mb-2 text-[11px] text-zinc-500">
+          Provider: {autocompleteProvider}
+        </div>
         <div className="flex flex-wrap gap-2">
           {autocomplete.length ? (
             autocomplete.map((item) => (
@@ -521,6 +668,13 @@ export default function SmartDrafterPage() {
           onUpdate={updateCitation}
           onDelete={deleteCitation}
           onInsert={insertCitation}
+          onSuggestClaim={(claim) => {
+            void fetchCitationSuggestions(claim);
+          }}
+          onApplySuggestion={applySuggestedCitation}
+          suggestions={suggestedCitations}
+          isSuggesting={isSuggestingCitation}
+          suggestionStatus={citationStatus}
         />
       </SectionCard>
 
