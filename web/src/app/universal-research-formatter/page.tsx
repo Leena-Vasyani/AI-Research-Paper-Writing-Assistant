@@ -16,6 +16,8 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
 import Badge from "@/components/Badge";
+import TableInsertDialog from "@/components/TableInsertDialog";
+import EquationEditor from "@/components/EquationEditor";
 import { api } from "@/lib/api";
 import { formatToIEEE, estimatePageCount } from "@/lib/ieee-formatter";
 import {
@@ -32,6 +34,7 @@ type FormatPreset = {
   description: string;
   colCount: 1 | 2;
   colGap: string;
+  fontFamily: string;
   fontSize: string;
   marginX: string;
   marginTop: string;
@@ -47,6 +50,7 @@ const IEEE_PRESETS: Record<IEEEFormat, FormatPreset> = {
     description: "Strict MS Word Conference-template-A4 layout",
     colCount: 2,
     colGap: "0.17in",
+    fontFamily: '"Times New Roman", Times, serif',
     fontSize: "10pt",
     marginX: "0.56in",
     marginTop: "0.75in",
@@ -60,6 +64,7 @@ const IEEE_PRESETS: Record<IEEEFormat, FormatPreset> = {
     description: "Reserved for future journal-specific template support",
     colCount: 2,
     colGap: "0.2in",
+    fontFamily: '"Times New Roman", Times, serif',
     fontSize: "10pt",
     marginX: "0.625in",
     marginTop: "0.875in",
@@ -73,6 +78,7 @@ const IEEE_PRESETS: Record<IEEEFormat, FormatPreset> = {
     description: "Reserved for future transactions template support",
     colCount: 1,
     colGap: "0in",
+    fontFamily: '"Times New Roman", Times, serif',
     fontSize: "11pt",
     marginX: "1in",
     marginTop: "1in",
@@ -87,6 +93,7 @@ type PaperSettings = {
   format: IEEEFormat;
   colCount: 1 | 2;
   colGap: string;
+  fontFamily: string;
   fontSize: string;
   marginX: string;
   marginTop: string;
@@ -101,6 +108,7 @@ const createPaperSettings = (format: IEEEFormat): PaperSettings => {
     format,
     colCount: preset.colCount,
     colGap: preset.colGap,
+    fontFamily: preset.fontFamily,
     fontSize: preset.fontSize,
     marginX: preset.marginX,
     marginTop: preset.marginTop,
@@ -110,6 +118,18 @@ const createPaperSettings = (format: IEEEFormat): PaperSettings => {
   };
 };
 
+const FORMAL_FONT_OPTIONS = [
+  { label: "Times New Roman (IEEE)", value: '"Times New Roman", Times, serif' },
+  { label: "Cambria", value: 'Cambria, "Times New Roman", serif' },
+  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
+  { label: "Garamond", value: 'Garamond, "Times New Roman", serif' },
+  { label: "Palatino", value: '"Palatino Linotype", Palatino, serif' },
+  { label: "Calibri", value: "Calibri, Arial, sans-serif" },
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+];
+
+const FONT_SIZE_OPTIONS = ["9pt", "10pt", "11pt", "12pt", "13pt", "14pt"];
+
 // Context Menu State
 type ContextMenuState = {
   visible: boolean;
@@ -117,12 +137,33 @@ type ContextMenuState = {
   y: number;
 };
 
+type ContextMenuItem = {
+  label?: string;
+  shortcut?: string;
+  action?: () => void;
+  disabled?: boolean;
+  type?: "divider";
+};
+
+type ToolButtonProps = {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  title?: string;
+  tone?: "default" | "danger";
+};
+
+type DocumentMode = "ieee" | "thesis";
+
 export default function UniversalResearchFormatterPage() {
+  const [documentMode, setDocumentMode] = useState<DocumentMode>("ieee");
   const [settings, setSettings] = useState<PaperSettings>(
     createPaperSettings("conference"),
   );
   const [rawInput, setRawInput] = useState<string>("");
   const [isFormatting, setIsFormatting] = useState(false);
+  const [isAiEnhancing, setIsAiEnhancing] = useState(false);
   const [formatStatus, setFormatStatus] = useState<string | null>(null);
   const [formatError, setFormatError] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -138,6 +179,11 @@ export default function UniversalResearchFormatterPage() {
   const [ieeeHtml, setIeeeHtml] = useState<string>("");
   const [previewStale, setPreviewStale] = useState(false); // true when editor changed since last format/refresh
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isTableDialogOpen, setIsTableDialogOpen] = useState(false);
+  const [isEquationDialogOpen, setIsEquationDialogOpen] = useState(false);
+  const [aiCommand, setAiCommand] = useState("");
+  const [isAiCopilotRunning, setIsAiCopilotRunning] = useState(false);
+  const [aiCopilotStatus, setAiCopilotStatus] = useState<string | null>(null);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
@@ -302,15 +348,362 @@ export default function UniversalResearchFormatterPage() {
     setSettings(createPaperSettings(format));
   };
 
+  const ToolButton = ({
+    label,
+    onClick,
+    active = false,
+    disabled = false,
+    title,
+    tone = "default",
+  }: ToolButtonProps) => {
+    const base =
+      "rounded-lg border px-2.5 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40";
+    const toneClass =
+      tone === "danger"
+        ? "border-rose-800 bg-rose-900/20 text-rose-200 hover:bg-rose-800/40"
+        : active
+          ? "border-indigo-500 bg-indigo-600 text-white"
+          : "border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700";
+    return (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        title={title}
+        className={`${base} ${toneClass}`}
+      >
+        {label}
+      </button>
+    );
+  };
+
   // Context Menu Handler
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setContextMenu({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-    });
-  }, []);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+
+      const menuWidth = 220;
+      const menuHeight = documentMode === "thesis" ? 560 : 340;
+      const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
+      const y = Math.min(e.clientY, window.innerHeight - menuHeight - 8);
+
+      setContextMenu({
+        visible: true,
+        x,
+        y,
+      });
+    },
+    [documentMode],
+  );
+
+  const handleInsertTable = useCallback(
+    (rows: number, cols: number, withHeader: boolean) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .insertTable({ rows, cols, withHeaderRow: withHeader })
+        .run();
+      setPreviewStale(true);
+    },
+    [editor],
+  );
+
+  const handleInsertEquation = useCallback(
+    (latex: string, isBlock: boolean) => {
+      if (!editor || !latex.trim()) return;
+      const normalized = latex.trim();
+      if (isBlock) {
+        editor
+          .chain()
+          .focus()
+          .toggleBlockquote()
+          .insertContent(`$$${normalized}$$`)
+          .toggleBlockquote()
+          .insertContent({ type: "paragraph" })
+          .run();
+      } else {
+        editor.chain().focus().insertContent(`$${normalized}$`).run();
+      }
+      setPreviewStale(true);
+    },
+    [editor],
+  );
+
+  const insertFrontMatterBlock = useCallback(
+    (className: string, lines: string[]) => {
+      if (!editor) return;
+
+      const paragraphNodes = lines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => ({
+          type: "paragraph",
+          attrs: {
+            ieeeRole: "none",
+            noIndent: true,
+          },
+          content: [{ type: "text", text: line }],
+        }));
+
+      if (paragraphNodes.length === 0) return;
+
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          {
+            type: "ieeeContainer",
+            attrs: { className: `front-matter-page ${className}` },
+            content: paragraphNodes,
+          },
+          {
+            type: "ieeeContainer",
+            attrs: { className: "front-matter-page-break" },
+          },
+          {
+            type: "paragraph",
+            attrs: { ieeeRole: "none" },
+          },
+        ])
+        .run();
+
+      setPreviewStale(true);
+      setFormatStatus("Front-matter section inserted.");
+      setTimeout(() => setFormatStatus(null), 2500);
+    },
+    [editor],
+  );
+
+  const buildLinesFromCustomTemplate = (customInput: string) =>
+    customInput
+      .split("||")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+  const insertCoverPageBuilder = useCallback(() => {
+    const custom =
+      window.prompt(
+        "Custom cover template (optional). Use || between lines. Leave blank for standard template:",
+        "",
+      ) ?? "";
+
+    if (custom.trim()) {
+      insertFrontMatterBlock(
+        "front-matter-cover",
+        buildLinesFromCustomTemplate(custom),
+      );
+      return;
+    }
+
+    const paperTitle = window
+      .prompt("Paper/Thesis Title:", "Your Thesis Title")
+      ?.trim();
+    if (!paperTitle) return;
+    const candidateName =
+      window.prompt("Student Name:", "Your Name")?.trim() || "Your Name";
+    const rollNumber =
+      window.prompt("Roll Number:", "Roll Number")?.trim() || "Roll Number";
+    const department =
+      window.prompt("Department:", "Department Name")?.trim() ||
+      "Department Name";
+    const college =
+      window.prompt("College / University:", "College Name")?.trim() ||
+      "College Name";
+    const monthYear =
+      window.prompt("Submission Month & Year:", "Month Year")?.trim() ||
+      "Month Year";
+
+    insertFrontMatterBlock("front-matter-cover", [
+      paperTitle,
+      "",
+      "A Project Report Submitted In Partial Fulfilment Of The Requirements",
+      "for the award of degree",
+      "",
+      `Submitted by: ${candidateName}`,
+      `Roll No.: ${rollNumber}`,
+      "",
+      department,
+      college,
+      monthYear,
+    ]);
+  }, [insertFrontMatterBlock]);
+
+  const insertCertificateBuilder = useCallback(() => {
+    const custom =
+      window.prompt(
+        "Custom certificate template (optional). Use || between lines. Leave blank for standard template:",
+        "",
+      ) ?? "";
+
+    if (custom.trim()) {
+      insertFrontMatterBlock(
+        "front-matter-certificate",
+        buildLinesFromCustomTemplate(custom),
+      );
+      return;
+    }
+
+    const candidateName =
+      window.prompt("Student Name:", "Your Name")?.trim() || "Your Name";
+    const paperTitle =
+      window.prompt("Project/Thesis Title:", "Your Thesis Title")?.trim() ||
+      "Your Thesis Title";
+    const guideName =
+      window.prompt("Guide Name:", "Guide Name")?.trim() || "Guide Name";
+    const hodName =
+      window.prompt("HOD Name:", "HOD Name")?.trim() || "HOD Name";
+    const academicYear =
+      window.prompt("Academic Year:", "2025-26")?.trim() || "2025-26";
+
+    insertFrontMatterBlock("front-matter-certificate", [
+      "CERTIFICATE",
+      "",
+      `This is to certify that ${candidateName} has successfully completed the project titled \"${paperTitle}\" during the academic year ${academicYear}.`,
+      "",
+      "This work has been carried out under our supervision and is submitted for evaluation.",
+      "",
+      `Guide Signature: ____________________ (${guideName})`,
+      `HOD Signature: ______________________ (${hodName})`,
+    ]);
+  }, [insertFrontMatterBlock]);
+
+  const insertDeclarationBuilder = useCallback(() => {
+    const custom =
+      window.prompt(
+        "Custom declaration template (optional). Use || between lines. Leave blank for standard template:",
+        "",
+      ) ?? "";
+
+    if (custom.trim()) {
+      insertFrontMatterBlock(
+        "front-matter-declaration",
+        buildLinesFromCustomTemplate(custom),
+      );
+      return;
+    }
+
+    const candidateName =
+      window.prompt("Student Name:", "Your Name")?.trim() || "Your Name";
+    const paperTitle =
+      window.prompt("Project/Thesis Title:", "Your Thesis Title")?.trim() ||
+      "Your Thesis Title";
+
+    insertFrontMatterBlock("front-matter-declaration", [
+      "DECLARATION",
+      "",
+      `I, ${candidateName}, hereby declare that the project titled \"${paperTitle}\" is my original work and has not been submitted elsewhere for any degree or diploma.`,
+      "",
+      "I further declare that all sources used are duly acknowledged.",
+      "",
+      `Signature of Student: ____________________ (${candidateName})`,
+    ]);
+  }, [insertFrontMatterBlock]);
+
+  const insertAcknowledgementBuilder = useCallback(() => {
+    const custom =
+      window.prompt(
+        "Custom acknowledgement template (optional). Use || between lines. Leave blank for standard template:",
+        "",
+      ) ?? "";
+
+    if (custom.trim()) {
+      insertFrontMatterBlock(
+        "front-matter-acknowledgement",
+        buildLinesFromCustomTemplate(custom),
+      );
+      return;
+    }
+
+    const guideName =
+      window.prompt("Guide Name:", "Guide Name")?.trim() || "Guide Name";
+    const college =
+      window.prompt("College / Department:", "College Name")?.trim() ||
+      "College Name";
+
+    insertFrontMatterBlock("front-matter-acknowledgement", [
+      "ACKNOWLEDGEMENT",
+      "",
+      `I express my sincere gratitude to ${guideName} for continuous guidance and support during this project work.`,
+      "",
+      `I also thank the faculty members and staff of ${college} for their assistance and encouragement.`,
+      "",
+      "Finally, I am grateful to my family and friends for their support.",
+    ]);
+  }, [insertFrontMatterBlock]);
+
+  const insertTocBuilder = useCallback(() => {
+    if (!editor) return;
+
+    const doc = editor.getJSON();
+    const tocLines: string[] = ["TABLE OF CONTENTS", ""];
+
+    const walk = (node: any) => {
+      if (!node) return;
+      if (node.type === "heading") {
+        const level = node.attrs?.level ?? 1;
+        if (level === 1 || level === 2) {
+          const text = (node.content ?? [])
+            .map((item: any) => item?.text ?? "")
+            .join("")
+            .trim();
+          if (
+            text &&
+            !/^(table of contents|glossary|acknowledgement|declaration|certificate|cover page)$/i.test(
+              text,
+            )
+          ) {
+            tocLines.push(level === 1 ? `• ${text}` : `   ◦ ${text}`);
+          }
+        }
+      }
+
+      if (Array.isArray(node.content)) {
+        node.content.forEach(walk);
+      }
+    };
+
+    walk(doc);
+
+    if (tocLines.length <= 2) {
+      tocLines.push("• Add section headings (H1/H2) to auto-build TOC");
+    }
+
+    insertFrontMatterBlock("front-matter-toc", tocLines);
+  }, [editor, insertFrontMatterBlock]);
+
+  const insertGlossaryBuilder = useCallback(() => {
+    if (!editor) return;
+
+    const text = editor.getText();
+    const detectedTerms = Array.from(
+      new Set(text.match(/\b[A-Z][A-Z0-9]{1,}\b/g) ?? []),
+    ).slice(0, 12);
+
+    const customEntries =
+      window.prompt(
+        "Optional custom glossary entries (TERM: Definition). Use || between entries. Leave blank to use auto-suggestions.",
+        "",
+      ) ?? "";
+
+    const glossaryLines = ["GLOSSARY", ""];
+
+    if (customEntries.trim()) {
+      const entries = customEntries
+        .split("||")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      glossaryLines.push(...entries);
+    } else if (detectedTerms.length > 0) {
+      glossaryLines.push(
+        ...detectedTerms.map((term) => `${term} — [Add definition]`),
+      );
+    } else {
+      glossaryLines.push("TERM — [Add definition]");
+      glossaryLines.push("ACRONYM — [Add definition]");
+    }
+
+    insertFrontMatterBlock("front-matter-glossary", glossaryLines);
+  }, [editor, insertFrontMatterBlock]);
 
   // Close context menu on click elsewhere
   useEffect(() => {
@@ -385,8 +778,30 @@ export default function UniversalResearchFormatterPage() {
     };
   }, [previewStale, editor, isRefreshing, refreshPreview]);
 
+  useEffect(() => {
+    if (documentMode !== "thesis") return;
+    setSettings((prev) => ({
+      ...prev,
+      colCount: 1,
+      colGap: "0in",
+    }));
+  }, [documentMode]);
+
   // Context menu actions
-  const contextMenuActions = [
+  const isInTable = editor?.isActive("table") ?? false;
+
+  const contextMenuActions: ContextMenuItem[] = [
+    {
+      label: "Undo",
+      shortcut: "Ctrl+Z",
+      action: () => editor?.chain().focus().undo().run(),
+    },
+    {
+      label: "Redo",
+      shortcut: "Ctrl+Y",
+      action: () => editor?.chain().focus().redo().run(),
+    },
+    { type: "divider" as const },
     {
       label: "Bold",
       shortcut: "Ctrl+B",
@@ -418,6 +833,21 @@ export default function UniversalResearchFormatterPage() {
       shortcut: "Ctrl+3",
       action: () => editor?.chain().focus().toggleHeading({ level: 3 }).run(),
     },
+    {
+      label: "Heading 4",
+      shortcut: "Ctrl+4",
+      action: () => editor?.chain().focus().toggleHeading({ level: 4 }).run(),
+    },
+    {
+      label: "Paragraph",
+      shortcut: "",
+      action: () => editor?.chain().focus().setParagraph().run(),
+    },
+    {
+      label: "Block Quote",
+      shortcut: "",
+      action: () => editor?.chain().focus().toggleBlockquote().run(),
+    },
     { type: "divider" as const },
     {
       label: "Subscript",
@@ -447,6 +877,30 @@ export default function UniversalResearchFormatterPage() {
     },
     { type: "divider" as const },
     {
+      label: "Insert Table",
+      shortcut: "",
+      action: () => setIsTableDialogOpen(true),
+    },
+    {
+      label: "Add Row",
+      shortcut: "",
+      action: () => editor?.chain().focus().addRowAfter().run(),
+      disabled: !isInTable,
+    },
+    {
+      label: "Add Column",
+      shortcut: "",
+      action: () => editor?.chain().focus().addColumnAfter().run(),
+      disabled: !isInTable,
+    },
+    {
+      label: "Delete Table",
+      shortcut: "",
+      action: () => editor?.chain().focus().deleteTable().run(),
+      disabled: !isInTable,
+    },
+    { type: "divider" as const },
+    {
       label: "Insert Figure (Upload)",
       shortcut: "",
       action: openImagePicker,
@@ -455,6 +909,48 @@ export default function UniversalResearchFormatterPage() {
       label: "Insert Figure (URL)",
       shortcut: "",
       action: insertImageByUrl,
+    },
+    {
+      label: "Insert Equation",
+      shortcut: "",
+      action: () => setIsEquationDialogOpen(true),
+    },
+    { type: "divider" as const },
+    {
+      label: "Insert Cover Page",
+      shortcut: "",
+      action: insertCoverPageBuilder,
+      disabled: documentMode !== "thesis",
+    },
+    {
+      label: "Insert Certificate",
+      shortcut: "",
+      action: insertCertificateBuilder,
+      disabled: documentMode !== "thesis",
+    },
+    {
+      label: "Insert Declaration",
+      shortcut: "",
+      action: insertDeclarationBuilder,
+      disabled: documentMode !== "thesis",
+    },
+    {
+      label: "Insert Acknowledgement",
+      shortcut: "",
+      action: insertAcknowledgementBuilder,
+      disabled: documentMode !== "thesis",
+    },
+    {
+      label: "Build TOC",
+      shortcut: "",
+      action: insertTocBuilder,
+      disabled: documentMode !== "thesis",
+    },
+    {
+      label: "Build Glossary",
+      shortcut: "",
+      action: insertGlossaryBuilder,
+      disabled: documentMode !== "thesis",
     },
   ];
 
@@ -606,6 +1102,335 @@ export default function UniversalResearchFormatterPage() {
     }
   };
 
+  const aiHtmlToDeterministicInput = (html: string) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const lines: string[] = [];
+    let inReferences = false;
+    let referenceCounter = 1;
+
+    const pushLine = (value: string) => {
+      const clean = value.replace(/\s+/g, " ").trim();
+      if (clean) lines.push(clean);
+    };
+
+    const getElementText = (el: HTMLElement) =>
+      (el.textContent ?? "").replace(/\s+/g, " ").trim();
+
+    Array.from(doc.body.childNodes).forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        pushLine(node.textContent ?? "");
+        return;
+      }
+
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+
+      const tag = node.tagName;
+
+      if (["H1", "H2", "H3", "H4", "H5"].includes(tag)) {
+        const headingText = getElementText(node);
+        if (headingText) {
+          pushLine(headingText);
+          lines.push("");
+        }
+        inReferences =
+          /^(?:(?:[ivxlcdm]+|\d+)[.)]\s*)?(references|bibliography)\b/i.test(
+            headingText,
+          );
+        return;
+      }
+
+      if (node.classList.contains("algorithm-block") || tag === "PRE") {
+        const title = getElementText(
+          (node.querySelector(".algo-title") as HTMLElement | null) ?? node,
+        );
+
+        const algoLineElements = Array.from(
+          node.querySelectorAll(".algo-line"),
+        );
+        const algoLines =
+          algoLineElements.length > 0
+            ? algoLineElements
+                .map((lineEl) => getElementText(lineEl as HTMLElement))
+                .filter(Boolean)
+            : (node.textContent ?? "")
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+
+        if (/^algorithm\s+\d+/i.test(title)) {
+          pushLine(title);
+        } else {
+          const firstAlgorithmLine = algoLines.find((line) =>
+            /^algorithm\s+\d+/i.test(line),
+          );
+          if (firstAlgorithmLine) pushLine(firstAlgorithmLine);
+        }
+
+        algoLines.forEach((line) => {
+          if (!line) return;
+          if (/^algorithm\s+\d+/i.test(line)) return;
+          pushLine(line);
+        });
+        lines.push("");
+        return;
+      }
+
+      if (node.classList.contains("table-caption")) {
+        pushLine(getElementText(node));
+        lines.push("");
+        return;
+      }
+
+      if (tag === "TABLE") {
+        const captionEl = node.querySelector("caption") as HTMLElement | null;
+        if (captionEl) {
+          const captionText = getElementText(captionEl);
+          if (captionText) pushLine(captionText);
+        }
+
+        const rows = Array.from(node.querySelectorAll("tr"));
+        rows.forEach((row) => {
+          const cells = Array.from(row.querySelectorAll("th, td"));
+          const parts = cells.map((cell) =>
+            getElementText(cell as HTMLElement),
+          );
+          if (parts.length) pushLine(parts.join(" | "));
+        });
+        lines.push("");
+        return;
+      }
+
+      if (tag === "OL" || tag === "UL") {
+        const items = Array.from(node.children).filter(
+          (child) => child.tagName === "LI",
+        ) as HTMLElement[];
+
+        items.forEach((li) => {
+          const itemText = getElementText(li);
+          if (!itemText) return;
+
+          if (inReferences) {
+            if (/^\[\d+\]/.test(itemText)) {
+              pushLine(itemText);
+              referenceCounter += 1;
+            } else {
+              const numbered = itemText.match(/^(\d+)[.)]\s*(.*)$/);
+              if (numbered) {
+                pushLine(`[${numbered[1]}] ${numbered[2]}`);
+              } else {
+                pushLine(`[${referenceCounter}] ${itemText}`);
+              }
+              referenceCounter += 1;
+            }
+          } else {
+            pushLine(itemText);
+          }
+        });
+        lines.push("");
+        return;
+      }
+
+      const text = getElementText(node);
+      if (text) {
+        if (inReferences) {
+          if (/^\[\d+\]/.test(text)) {
+            pushLine(text);
+            referenceCounter += 1;
+          } else {
+            const numbered = text.match(/^(\d+)[.)]\s*(.*)$/);
+            if (numbered) {
+              pushLine(`[${numbered[1]}] ${numbered[2]}`);
+            } else {
+              pushLine(`[${referenceCounter}] ${text}`);
+            }
+            referenceCounter += 1;
+          }
+        } else {
+          pushLine(text);
+        }
+      }
+
+      if (["P", "DIV", "BLOCKQUOTE", "LI"].includes(tag)) {
+        lines.push("");
+      }
+    });
+
+    return lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  };
+
+  const handleAiEnhance = async () => {
+    if (!rawInput.trim() || isAiEnhancing || isFormatting) return;
+
+    setIsAiEnhancing(true);
+    setFormatError(null);
+    setFormatStatus(
+      "AI enhancing input: grammar check, section cleanup, table normalization...",
+    );
+
+    try {
+      const response = await api.formatIEEE({
+        raw_text: rawInput.trim(),
+        format_type: settings.format,
+        detect_equations: true,
+        detect_references: true,
+      });
+
+      if (!response.success || !response.formatted_html?.trim()) {
+        throw new Error(response.error || "AI enhancement failed");
+      }
+
+      const normalizedRawInput = aiHtmlToDeterministicInput(
+        response.formatted_html,
+      );
+
+      const { result, estimatedPages } = runDeterministicFormat(
+        normalizedRawInput || rawInput.trim(),
+      );
+
+      setFormatStatus(
+        `AI enhanced (${response.provider}) + deterministic formatting: ${result.sectionCount} sections, ${result.tableCount} tables, ${result.equationCount} equations → ${estimatedPages} page(s)`,
+      );
+      setRawInput("");
+    } catch (error) {
+      console.error("AI enhance error:", error);
+      setFormatError(
+        error instanceof Error
+          ? error.message
+          : "AI enhancement failed. Try deterministic formatting.",
+      );
+    } finally {
+      setIsAiEnhancing(false);
+      setTimeout(() => setFormatStatus(null), 6000);
+    }
+  };
+
+  const applyAiCssUpdates = useCallback((updates: Record<string, unknown>) => {
+    setSettings((prev) => {
+      const next = { ...prev };
+
+      const colCount = updates["--col-count"];
+      if (colCount === 1 || colCount === "1") next.colCount = 1;
+      if (colCount === 2 || colCount === "2") next.colCount = 2;
+
+      const colGap = updates["--col-gap"];
+      if (typeof colGap === "string" && colGap.trim()) next.colGap = colGap;
+
+      const fontSize = updates["--font-size"];
+      if (typeof fontSize === "string" && fontSize.trim()) {
+        next.fontSize = fontSize;
+      }
+
+      const marginX = updates["--margin-x"];
+      if (typeof marginX === "string" && marginX.trim()) next.marginX = marginX;
+
+      const marginY = updates["--margin-y"];
+      if (typeof marginY === "string" && marginY.trim()) {
+        next.marginTop = marginY;
+        next.marginBottom = marginY;
+      }
+
+      return next;
+    });
+  }, []);
+
+  const applyAiEditorAction = useCallback(
+    (action: string) => {
+      if (!editor) return false;
+
+      const chain = editor.chain().focus();
+      switch (action) {
+        case "toggleBold":
+          return chain.toggleBold().run();
+        case "toggleItalic":
+          return chain.toggleItalic().run();
+        case "toggleHeading1":
+          return chain.toggleHeading({ level: 1 }).run();
+        case "toggleHeading2":
+          return chain.toggleHeading({ level: 2 }).run();
+        default:
+          return false;
+      }
+    },
+    [editor],
+  );
+
+  const runAiCopilot = useCallback(async () => {
+    if (!editor || !aiCommand.trim() || isAiCopilotRunning) return;
+
+    setIsAiCopilotRunning(true);
+    setAiCopilotStatus("Analyzing request...");
+
+    try {
+      const response = await api.formatCommands({
+        prompt: aiCommand.trim(),
+        settings: {
+          format: settings.format,
+          colCount: settings.colCount,
+          colGap: settings.colGap,
+          fontSize: settings.fontSize,
+          marginX: settings.marginX,
+          marginTop: settings.marginTop,
+          marginBottom: settings.marginBottom,
+        },
+        available_targets: [
+          "selection",
+          "current paragraph",
+          "section heading",
+          "abstract",
+          "references",
+          "document",
+        ],
+      });
+
+      const cssUpdates = response.cssUpdates ?? {};
+      const editorCommands = response.editorCommands ?? [];
+
+      applyAiCssUpdates(cssUpdates as Record<string, unknown>);
+
+      let appliedCommands = 0;
+      for (const cmd of editorCommands) {
+        if (applyAiEditorAction(cmd.action)) {
+          appliedCommands += 1;
+        }
+      }
+
+      if (appliedCommands > 0) {
+        setPreviewStale(true);
+      }
+
+      setAiCopilotStatus(
+        `Applied ${appliedCommands} editor change(s) and ${Object.keys(cssUpdates as Record<string, unknown>).length} layout update(s).`,
+      );
+      setAiCommand("");
+    } catch (error) {
+      setAiCopilotStatus(
+        error instanceof Error ? error.message : "AI Copilot request failed.",
+      );
+    } finally {
+      setIsAiCopilotRunning(false);
+      setTimeout(() => setAiCopilotStatus(null), 5000);
+    }
+  }, [
+    aiCommand,
+    applyAiCssUpdates,
+    applyAiEditorAction,
+    editor,
+    isAiCopilotRunning,
+    settings.colCount,
+    settings.colGap,
+    settings.fontSize,
+    settings.format,
+    settings.marginBottom,
+    settings.marginTop,
+    settings.marginX,
+  ]);
+
   // LaTeX Builder
   const escapeLatex = (value: string) =>
     value
@@ -620,6 +1445,8 @@ export default function UniversalResearchFormatterPage() {
     const marks = node.marks ?? [];
     const isBold = marks.some((mark: any) => mark.type === "bold");
     const isItalic = marks.some((mark: any) => mark.type === "italic");
+    const isStrike = marks.some((mark: any) => mark.type === "strike");
+    const isCode = marks.some((mark: any) => mark.type === "code");
     const isSubscript = marks.some((mark: any) => mark.type === "subscript");
     const isSuperscript = marks.some(
       (mark: any) => mark.type === "superscript",
@@ -627,13 +1454,21 @@ export default function UniversalResearchFormatterPage() {
     const isUnderline = marks.some((mark: any) => mark.type === "underline");
 
     let result = text;
+    if (isCode) result = `\\texttt{${result}}`;
     if (isSubscript) result = `\\textsubscript{${result}}`;
     if (isSuperscript) result = `\\textsuperscript{${result}}`;
     if (isUnderline) result = `\\underline{${result}}`;
+    if (isStrike) result = `\\sout{${result}}`;
     if (isBold && isItalic) return `\\textbf{\\textit{${result}}}`;
     if (isBold) return `\\textbf{${result}}`;
     if (isItalic) return `\\textit{${result}}`;
     return result;
+  };
+
+  const extractPlainTextFromNode = (node: any): string => {
+    if (!node) return "";
+    if (node.type === "text") return node.text ?? "";
+    return (node.content ?? []).map(extractPlainTextFromNode).join(" ").trim();
   };
 
   const renderNode = (node: any): string => {
@@ -653,6 +1488,35 @@ export default function UniversalResearchFormatterPage() {
     if (node.type === "paragraph") {
       const text = (node.content ?? []).map(renderNode).join("");
       return text ? `${text}\n` : "";
+    }
+
+    if (node.type === "ieeeContainer") {
+      const className = (node.attrs?.className ?? "") as string;
+      if (className.includes("front-matter-page-break")) {
+        return "\\newpage";
+      }
+
+      return (node.content ?? [])
+        .map((child: any) => renderNode(child))
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    if (node.type === "horizontalRule") {
+      return "\\noindent\\rule{\\columnwidth}{0.4pt}";
+    }
+
+    if (node.type === "codeBlock") {
+      const codeText = escapeLatex(extractPlainTextFromNode(node));
+      return `\\begin{verbatim}\n${codeText}\n\\end{verbatim}`;
+    }
+
+    if (node.type === "blockquote") {
+      const quoteText = (node.content ?? []).map(renderNode).join(" ").trim();
+      const equationText = quoteText.replace(/\$\$/g, "").trim();
+      return equationText
+        ? `\\begin{equation*}\n${equationText}\n\\end{equation*}`
+        : "";
     }
 
     if (node.type === "image") {
@@ -693,6 +1557,48 @@ export default function UniversalResearchFormatterPage() {
       return content ? `\\item ${content}` : "";
     }
 
+    if (node.type === "table") {
+      const rows = (node.content ?? []).filter(
+        (row: any) => row.type === "tableRow",
+      );
+      if (!rows.length) return "";
+
+      const parsedRows = rows.map((row: any) =>
+        (row.content ?? [])
+          .filter(
+            (cell: any) =>
+              cell.type === "tableCell" || cell.type === "tableHeader",
+          )
+          .map((cell: any) => {
+            const content = (cell.content ?? [])
+              .map(renderNode)
+              .join(" ")
+              .trim();
+            return content.replace(/\n+/g, " ");
+          }),
+      );
+
+      const maxCols = Math.max(1, ...parsedRows.map((r: string[]) => r.length));
+      const colSpec = `|${Array.from({ length: maxCols })
+        .map(() => "l")
+        .join("|")}|`;
+      const lines: string[] = [
+        "\\begin{table}[htbp]",
+        "\\centering",
+        `\\begin{tabular}{${colSpec}}`,
+        "\\hline",
+      ];
+
+      for (const row of parsedRows) {
+        const padded = [...row];
+        while (padded.length < maxCols) padded.push("");
+        lines.push(`${padded.join(" & ")} \\\\ \\hline`);
+      }
+
+      lines.push("\\end{tabular}", "\\end{table}");
+      return lines.join("\n");
+    }
+
     return (node.content ?? []).map(renderNode).join("");
   };
 
@@ -723,6 +1629,7 @@ export default function UniversalResearchFormatterPage() {
       "\\usepackage{graphicx}",
       "\\usepackage{textcomp}",
       "\\usepackage{xcolor}",
+      "\\usepackage[normalem]{ulem}",
       "\\usepackage{cite}",
       "\\usepackage{hyperref}",
       "",
@@ -826,14 +1733,14 @@ export default function UniversalResearchFormatterPage() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Research Paper - IEEE Format</title>
+        <title>Research Paper - ${documentMode === "thesis" ? "Thesis Mode" : "IEEE Format"}</title>
         <style>
           @page {
             size: A4;
             margin: ${settings.marginTop} ${settings.marginX} ${settings.marginBottom} ${settings.marginX};
           }
           body {
-            font-family: "Times New Roman", Times, serif;
+            font-family: ${settings.fontFamily};
             font-size: ${settings.fontSize};
             line-height: 1.14;
             column-count: ${settings.colCount};
@@ -928,6 +1835,35 @@ export default function UniversalResearchFormatterPage() {
           p.no-indent {
             text-indent: 0;
           }
+          .front-matter-page {
+            column-span: all;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            text-align: center;
+            padding: 8pt 0;
+          }
+          .front-matter-page p {
+            text-indent: 0;
+            margin: 0 0 8pt;
+          }
+          .front-matter-cover p:first-child {
+            margin-top: 72pt;
+            font-size: 18pt;
+            font-weight: bold;
+            text-transform: uppercase;
+          }
+          .front-matter-toc p,
+          .front-matter-glossary p {
+            text-align: left;
+          }
+          .front-matter-page-break {
+            column-span: all;
+            break-after: page;
+            page-break-after: always;
+            height: 1px;
+            margin: 0;
+            padding: 0;
+          }
           .abstract-text {
             font-size: 9pt;
             line-height: 1.2;
@@ -970,6 +1906,24 @@ export default function UniversalResearchFormatterPage() {
           .ieee-citation {
             color: inherit;
             font-weight: normal;
+          }
+          .ieee-citation a,
+          .ieee-citation-link {
+            color: inherit;
+            text-decoration: none;
+          }
+          .reference-backlinks {
+            margin-left: 4px;
+            white-space: nowrap;
+          }
+          .reference-backlink {
+            color: inherit;
+            text-decoration: none;
+            opacity: 0.75;
+            font-size: 7pt;
+          }
+          .reference-item:target {
+            background: rgba(59, 130, 246, 0.12);
           }
           .table-wrapper {
             break-inside: avoid-column;
@@ -1091,7 +2045,11 @@ export default function UniversalResearchFormatterPage() {
 
       <PageHeader
         title="Universal Research Formatter"
-        subtitle="Conference-template-A4 strict formatting with live preview and export options."
+        subtitle={
+          documentMode === "thesis"
+            ? "Report/Thesis mode with front-matter builders, live preview, and export options."
+            : "Conference-template-A4 strict formatting with live preview and export options."
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1107,15 +2065,49 @@ export default function UniversalResearchFormatterPage() {
             >
               {isExporting ? "Compiling..." : "Export PDF"}
             </button>
-            <Badge tone="info">Template Lock</Badge>
+            <Badge tone="info">
+              {documentMode === "thesis" ? "Thesis Mode" : "Template Lock"}
+            </Badge>
           </div>
         }
       />
 
+      <SectionCard
+        title="Document Mode"
+        description="Switch between IEEE conference mode and Report/Thesis mode."
+      >
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setDocumentMode("ieee")}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+              documentMode === "ieee"
+                ? "border-indigo-500 bg-indigo-600 text-white"
+                : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+            }`}
+          >
+            IEEE Conference
+          </button>
+          <button
+            onClick={() => setDocumentMode("thesis")}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+              documentMode === "thesis"
+                ? "border-indigo-500 bg-indigo-600 text-white"
+                : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+            }`}
+          >
+            Report / Thesis
+          </button>
+        </div>
+      </SectionCard>
+
       {/* IEEE Format Selector */}
       <SectionCard
         title="IEEE Format Preset"
-        description="Conference template is active now. Journal and Transactions are disabled until their dedicated templates are implemented."
+        description={
+          documentMode === "thesis"
+            ? "IEEE presets are still available, but Thesis mode forces single-column front matter with dedicated builders."
+            : "Conference template is active now. Journal and Transactions are disabled until their dedicated templates are implemented."
+        }
       >
         <div className="grid gap-2 md:grid-cols-3">
           {(Object.entries(IEEE_PRESETS) as [IEEEFormat, FormatPreset][]).map(
@@ -1209,12 +2201,14 @@ Introduction content...
                 <>📄 Format to IEEE</>
               )}
             </button>
-            {/* AI formatter is disabled while strict template lock is active */}
             <button
-              disabled
-              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-500 cursor-not-allowed"
+              onClick={handleAiEnhance}
+              disabled={isAiEnhancing || isFormatting || !rawInput.trim()}
+              className="rounded-lg border border-indigo-700 bg-indigo-900/30 px-3 py-2 text-xs text-indigo-100 hover:bg-indigo-800/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              AI Enhance (coming soon)
+              {isAiEnhancing
+                ? "AI Enhancing..."
+                : "AI Enhance (Grammar + Structure)"}
             </button>
             <button
               onClick={() => {
@@ -1243,152 +2237,304 @@ Introduction content...
       {/* Formatting Toolbar */}
       <SectionCard
         title="Formatting Tools"
-        description="Click buttons or right-click in the editor for more options."
+        description="Ribbon tools for quick editing, structure, tables, equations, and figures."
       >
-        <div className="flex flex-wrap gap-1">
-          <button
-            onClick={() => editor?.chain().focus().toggleBold().run()}
-            className={`rounded px-3 py-1.5 text-xs font-bold transition-colors ${
-              editor?.isActive("bold")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            B
-          </button>
-          <button
-            onClick={() => editor?.chain().focus().toggleItalic().run()}
-            className={`rounded px-3 py-1.5 text-xs italic transition-colors ${
-              editor?.isActive("italic")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            I
-          </button>
-          <button
-            onClick={() => editor?.chain().focus().toggleUnderline().run()}
-            className={`rounded px-3 py-1.5 text-xs underline transition-colors ${
-              editor?.isActive("underline")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            U
-          </button>
-          <div className="w-px bg-zinc-700 mx-1" />
-          <button
-            onClick={() =>
-              editor?.chain().focus().toggleHeading({ level: 1 }).run()
-            }
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("heading", { level: 1 })
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            H1
-          </button>
-          <button
-            onClick={() =>
-              editor?.chain().focus().toggleHeading({ level: 2 }).run()
-            }
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("heading", { level: 2 })
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            H2
-          </button>
-          <button
-            onClick={() =>
-              editor?.chain().focus().toggleHeading({ level: 3 }).run()
-            }
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("heading", { level: 3 })
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            H3
-          </button>
-          <div className="w-px bg-zinc-700 mx-1" />
-          <button
-            onClick={() => editor?.chain().focus().toggleBulletList().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("bulletList")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            • List
-          </button>
-          <button
-            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("orderedList")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            1. List
-          </button>
-          <div className="w-px bg-zinc-700 mx-1" />
-          <button
-            onClick={() => editor?.chain().focus().toggleSubscript().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("subscript")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            X₂
-          </button>
-          <button
-            onClick={() => editor?.chain().focus().toggleSuperscript().run()}
-            className={`rounded px-2 py-1.5 text-xs transition-colors ${
-              editor?.isActive("superscript")
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-            }`}
-          >
-            X²
-          </button>
-          <div className="w-px bg-zinc-700 mx-1" />
-          <button
-            onClick={() => editor?.chain().focus().setTextAlign("left").run()}
-            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-          >
-            ⬅
-          </button>
-          <button
-            onClick={() => editor?.chain().focus().setTextAlign("center").run()}
-            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-          >
-            ⬌
-          </button>
-          <button
-            onClick={() =>
-              editor?.chain().focus().setTextAlign("justify").run()
-            }
-            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-          >
-            ≡
-          </button>
-          <div className="w-px bg-zinc-700 mx-1" />
-          <button
-            onClick={openImagePicker}
-            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-          >
-            🖼 Upload
-          </button>
-          <button
-            onClick={insertImageByUrl}
-            className="rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
-          >
-            🔗 URL
-          </button>
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
+              <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                History
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ToolButton
+                  label="↶ Undo"
+                  onClick={() => editor?.chain().focus().undo().run()}
+                />
+                <ToolButton
+                  label="↷ Redo"
+                  onClick={() => editor?.chain().focus().redo().run()}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
+              <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                Text
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ToolButton
+                  label="B"
+                  onClick={() => editor?.chain().focus().toggleBold().run()}
+                  active={editor?.isActive("bold")}
+                />
+                <ToolButton
+                  label="I"
+                  onClick={() => editor?.chain().focus().toggleItalic().run()}
+                  active={editor?.isActive("italic")}
+                />
+                <ToolButton
+                  label="U"
+                  onClick={() =>
+                    editor?.chain().focus().toggleUnderline().run()
+                  }
+                  active={editor?.isActive("underline")}
+                />
+                <ToolButton
+                  label="S"
+                  onClick={() => editor?.chain().focus().toggleStrike().run()}
+                  active={editor?.isActive("strike")}
+                />
+                <ToolButton
+                  label="Code"
+                  onClick={() => editor?.chain().focus().toggleCode().run()}
+                  active={editor?.isActive("code")}
+                />
+                <ToolButton
+                  label="X₂"
+                  onClick={() =>
+                    editor?.chain().focus().toggleSubscript().run()
+                  }
+                  active={editor?.isActive("subscript")}
+                />
+                <ToolButton
+                  label="X²"
+                  onClick={() =>
+                    editor?.chain().focus().toggleSuperscript().run()
+                  }
+                  active={editor?.isActive("superscript")}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
+              <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                Headings & Blocks
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ToolButton
+                  label="P"
+                  onClick={() => editor?.chain().focus().setParagraph().run()}
+                />
+                <ToolButton
+                  label="H1"
+                  onClick={() =>
+                    editor?.chain().focus().toggleHeading({ level: 1 }).run()
+                  }
+                  active={editor?.isActive("heading", { level: 1 })}
+                />
+                <ToolButton
+                  label="H2"
+                  onClick={() =>
+                    editor?.chain().focus().toggleHeading({ level: 2 }).run()
+                  }
+                  active={editor?.isActive("heading", { level: 2 })}
+                />
+                <ToolButton
+                  label="H3"
+                  onClick={() =>
+                    editor?.chain().focus().toggleHeading({ level: 3 }).run()
+                  }
+                  active={editor?.isActive("heading", { level: 3 })}
+                />
+                <ToolButton
+                  label="H4"
+                  onClick={() =>
+                    editor?.chain().focus().toggleHeading({ level: 4 }).run()
+                  }
+                  active={editor?.isActive("heading", { level: 4 })}
+                />
+                <ToolButton
+                  label="Quote"
+                  onClick={() =>
+                    editor?.chain().focus().toggleBlockquote().run()
+                  }
+                  active={editor?.isActive("blockquote")}
+                />
+                <ToolButton
+                  label="Code Block"
+                  onClick={() =>
+                    editor?.chain().focus().toggleCodeBlock().run()
+                  }
+                  active={editor?.isActive("codeBlock")}
+                />
+                <ToolButton
+                  label="Rule"
+                  onClick={() =>
+                    editor?.chain().focus().setHorizontalRule().run()
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
+              <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                Lists & Alignment
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ToolButton
+                  label="• List"
+                  onClick={() =>
+                    editor?.chain().focus().toggleBulletList().run()
+                  }
+                  active={editor?.isActive("bulletList")}
+                />
+                <ToolButton
+                  label="1. List"
+                  onClick={() =>
+                    editor?.chain().focus().toggleOrderedList().run()
+                  }
+                  active={editor?.isActive("orderedList")}
+                />
+                <ToolButton
+                  label="⬅"
+                  onClick={() =>
+                    editor?.chain().focus().setTextAlign("left").run()
+                  }
+                />
+                <ToolButton
+                  label="⬌"
+                  onClick={() =>
+                    editor?.chain().focus().setTextAlign("center").run()
+                  }
+                />
+                <ToolButton
+                  label="≡"
+                  onClick={() =>
+                    editor?.chain().focus().setTextAlign("justify").run()
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
+              <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                Tables
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ToolButton
+                  label="Insert"
+                  onClick={() => setIsTableDialogOpen(true)}
+                />
+                <ToolButton
+                  label="+ Row"
+                  onClick={() => editor?.chain().focus().addRowAfter().run()}
+                  disabled={!isInTable}
+                />
+                <ToolButton
+                  label="+ Col"
+                  onClick={() => editor?.chain().focus().addColumnAfter().run()}
+                  disabled={!isInTable}
+                />
+                <ToolButton
+                  label="- Row"
+                  onClick={() => editor?.chain().focus().deleteRow().run()}
+                  disabled={!isInTable}
+                  tone="danger"
+                />
+                <ToolButton
+                  label="- Col"
+                  onClick={() => editor?.chain().focus().deleteColumn().run()}
+                  disabled={!isInTable}
+                  tone="danger"
+                />
+                <ToolButton
+                  label="Delete"
+                  onClick={() => editor?.chain().focus().deleteTable().run()}
+                  disabled={!isInTable}
+                  tone="danger"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-2">
+              <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                Insert
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <ToolButton label="🖼 Upload" onClick={openImagePicker} />
+                <ToolButton label="🔗 URL" onClick={insertImageByUrl} />
+                <ToolButton
+                  label="∑ Equation"
+                  onClick={() => setIsEquationDialogOpen(true)}
+                />
+                <ToolButton
+                  label="Cover"
+                  onClick={insertCoverPageBuilder}
+                  disabled={documentMode !== "thesis"}
+                />
+                <ToolButton
+                  label="Certificate"
+                  onClick={insertCertificateBuilder}
+                  disabled={documentMode !== "thesis"}
+                />
+                <ToolButton
+                  label="Declaration"
+                  onClick={insertDeclarationBuilder}
+                  disabled={documentMode !== "thesis"}
+                />
+                <ToolButton
+                  label="Acknowledge"
+                  onClick={insertAcknowledgementBuilder}
+                  disabled={documentMode !== "thesis"}
+                />
+                <ToolButton
+                  label="TOC"
+                  onClick={insertTocBuilder}
+                  disabled={documentMode !== "thesis"}
+                />
+                <ToolButton
+                  label="Glossary"
+                  onClick={insertGlossaryBuilder}
+                  disabled={documentMode !== "thesis"}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 md:grid-cols-2">
+            <label className="space-y-1 text-xs text-zinc-400">
+              <span className="block">Formal Font Family</span>
+              <select
+                value={settings.fontFamily}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    fontFamily: e.target.value,
+                  }))
+                }
+                className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-indigo-500 focus:outline-none"
+              >
+                {FORMAL_FONT_OPTIONS.map((option) => (
+                  <option key={option.label} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-xs text-zinc-400">
+              <span className="block">Body Font Size</span>
+              <select
+                value={settings.fontSize}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, fontSize: e.target.value }))
+                }
+                className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-indigo-500 focus:outline-none"
+              >
+                {FONT_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-[11px] text-zinc-400">
+            Tip: Right-click inside the editor for quick actions. In Thesis
+            mode, front-matter builders create one page per section with
+            export-safe mappings.
+          </div>
         </div>
       </SectionCard>
 
@@ -1410,8 +2556,8 @@ Introduction content...
               onContextMenu={handleContextMenu}
               className="max-w-none p-6"
               style={{
-                fontFamily: '"Times New Roman", Times, serif',
-                fontSize: "12pt",
+                fontFamily: settings.fontFamily,
+                fontSize: settings.fontSize,
                 lineHeight: 1.6,
                 color: "#1a1a1a",
                 fontStyle: "normal",
@@ -1440,15 +2586,21 @@ Introduction content...
               words
             </span>
             <span className="text-[11px] text-zinc-400">
-              Edit freely, then click Refresh Preview →
+              Auto-refreshes while typing (manual refresh optional)
             </span>
           </div>
         </SectionCard>
 
         {/* Right Panel: IEEE Preview (refreshed on demand) */}
         <SectionCard
-          title="Conference Preview"
-          description="A4 · 2-column · Conference-template-A4"
+          title={
+            documentMode === "thesis" ? "Thesis Preview" : "Conference Preview"
+          }
+          description={
+            documentMode === "thesis"
+              ? "A4 · Front Matter + Body Layout"
+              : "A4 · 2-column · Conference-template-A4"
+          }
         >
           {/* Refresh Preview button bar */}
           <div className="flex items-center gap-3 mb-3">
@@ -1503,7 +2655,7 @@ Introduction content...
                 <div
                   className="ieee-preview-content"
                   style={{
-                    fontFamily: '"Times New Roman", Times, serif',
+                    fontFamily: settings.fontFamily,
                     fontSize: settings.fontSize,
                     lineHeight: 1.14,
                     padding: `${settings.marginTop} ${settings.marginX} ${settings.marginBottom}`,
@@ -1541,7 +2693,7 @@ Introduction content...
 
                 {/* Format badge */}
                 <div className="absolute top-2 right-2 bg-blue-600 text-white px-1.5 py-0.5 rounded text-[8px] font-medium shadow-sm">
-                  Conference A4
+                  {documentMode === "thesis" ? "Thesis" : "Conference A4"}
                 </div>
 
                 {/* Stale overlay */}
@@ -1596,7 +2748,10 @@ Introduction content...
                 <div className="flex items-center gap-1.5">
                   <span className="text-zinc-500">Font:</span>
                   <span className="text-zinc-300">
-                    {settings.fontSize} Times New Roman
+                    {settings.fontSize}{" "}
+                    {FORMAL_FONT_OPTIONS.find(
+                      (option) => option.value === settings.fontFamily,
+                    )?.label.split(" (")[0] ?? "Times New Roman"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1615,6 +2770,18 @@ Introduction content...
       </div>
 
       {/* Export Status */}
+      <TableInsertDialog
+        isOpen={isTableDialogOpen}
+        onClose={() => setIsTableDialogOpen(false)}
+        onInsert={handleInsertTable}
+      />
+
+      <EquationEditor
+        isOpen={isEquationDialogOpen}
+        onClose={() => setIsEquationDialogOpen(false)}
+        onInsert={handleInsertEquation}
+      />
+
       {exportStatus && (
         <div
           className={`fixed bottom-20 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2 text-sm font-medium shadow-lg ${
@@ -1640,10 +2807,16 @@ Introduction content...
               <button
                 key={index}
                 onClick={() => {
+                  if (item.disabled) return;
                   item.action?.();
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
-                className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                disabled={item.disabled}
+                className={`flex w-full items-center justify-between px-3 py-1.5 text-xs ${
+                  item.disabled
+                    ? "cursor-not-allowed text-zinc-600"
+                    : "text-zinc-300 hover:bg-zinc-800"
+                }`}
               >
                 <span>{item.label}</span>
                 {item.shortcut && (
@@ -1662,28 +2835,39 @@ Introduction content...
         <div className="flex items-center gap-2">
           <span className="text-lg">🤖</span>
           <span className="text-xs font-semibold text-zinc-200">
-            AI Copilot
+            AI Copilot (Beta)
           </span>
+          <Badge tone="info">Live</Badge>
         </div>
         <p className="mt-1 text-[11px] text-zinc-500">
-          Quick commands: "Add abstract section", "Fix citation format", "Make
-          title bold"
+          Ask for formatting actions like: “make section headings italic”, “bold
+          selected line”, or “set one column”.
         </p>
         <div className="mt-3 flex gap-2">
           <input
-            placeholder="Type a command..."
-            className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none"
+            value={aiCommand}
+            onChange={(e) => setAiCommand(e.target.value)}
+            placeholder="Type a formatting command..."
+            disabled={isAiCopilotRunning}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                // TODO: Handle AI command
-                console.log("AI command:", e.currentTarget.value);
+                e.preventDefault();
+                runAiCopilot();
               }
             }}
+            className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none"
           />
-          <button className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors">
-            Send
+          <button
+            onClick={runAiCopilot}
+            disabled={isAiCopilotRunning || !aiCommand.trim()}
+            className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {isAiCopilotRunning ? "Running..." : "Send"}
           </button>
         </div>
+        {aiCopilotStatus && (
+          <p className="mt-2 text-[11px] text-emerald-300">{aiCopilotStatus}</p>
+        )}
       </div>
     </div>
   );

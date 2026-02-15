@@ -16,7 +16,7 @@ type ParagraphRole =
   | "algoLine";
 
 const CONTAINER_CLASS_REGEX =
-  /\b(?:author-grid|author-block|table-wrapper|algorithm-block|algo-body|figure-block)\b/;
+  /\b(?:author-grid|author-block|table-wrapper|algorithm-block|algo-body|figure-block|front-matter-page|front-matter-page-break|front-matter-cover|front-matter-certificate|front-matter-declaration|front-matter-acknowledgement|front-matter-toc|front-matter-glossary)\b/;
 
 export const IeeeContainer = Node.create({
   name: "ieeeContainer",
@@ -44,6 +44,14 @@ export const IeeeContainer = Node.create({
       { tag: "div.algorithm-block" },
       { tag: "div.algo-body" },
       { tag: "div.figure-block" },
+      { tag: "div.front-matter-page" },
+      { tag: "div.front-matter-page-break" },
+      { tag: "div.front-matter-cover" },
+      { tag: "div.front-matter-certificate" },
+      { tag: "div.front-matter-declaration" },
+      { tag: "div.front-matter-acknowledgement" },
+      { tag: "div.front-matter-toc" },
+      { tag: "div.front-matter-glossary" },
     ];
   },
 

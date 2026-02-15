@@ -319,6 +319,37 @@ body {
   margin: 0 0 2.5pt;
 }
 
+.ieee-preview-html .reference-item .reference-label {
+  color: inherit;
+  font-weight: 400;
+}
+
+.ieee-preview-html .ieee-citation-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ieee-preview-html .reference-backlinks {
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.ieee-preview-html .reference-backlink {
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.75;
+  font-size: 7pt;
+}
+
+.ieee-preview-html .reference-backlink:hover {
+  opacity: 1;
+}
+
+.ieee-preview-html .reference-item:target {
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 2px;
+}
+
 .ieee-preview-html .ieee-copyright {
   column-span: all;
   font-size: 8pt;
@@ -492,4 +523,45 @@ body {
 .editor-content .ProseMirror td {
   border: 1px solid #ccc;
   padding: 0.5em;
+}
+
+/* Thesis/Report front-matter blocks */
+.editor-content .ProseMirror .front-matter-page,
+.ieee-preview-html .front-matter-page {
+  column-span: all;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  text-align: center;
+  padding: 8pt 0;
+}
+
+.editor-content .ProseMirror .front-matter-page p,
+.ieee-preview-html .front-matter-page p {
+  text-indent: 0;
+  margin: 0 0 8pt;
+}
+
+.editor-content .ProseMirror .front-matter-cover p:first-child,
+.ieee-preview-html .front-matter-cover p:first-child {
+  margin-top: 64pt;
+  font-size: 18pt;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.editor-content .ProseMirror .front-matter-page-break,
+.ieee-preview-html .front-matter-page-break {
+  column-span: all;
+  break-after: page;
+  page-break-after: always;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-content .ProseMirror .front-matter-toc p,
+.editor-content .ProseMirror .front-matter-glossary p,
+.ieee-preview-html .front-matter-toc p,
+.ieee-preview-html .front-matter-glossary p {
+  text-align: left;
 }

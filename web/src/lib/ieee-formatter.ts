@@ -37,6 +37,11 @@ type InlineFormatResult = {
   equationCount: number;
 };
 
+type CitationContext = {
+  getNextCitationId: () => string;
+  registerCitation: (referenceNumber: number, citationId: string) => void;
+};
+
 type TableFormatResult = {
   html: string;
   equationCount: number;
@@ -411,7 +416,10 @@ function convertMath(mathText: string): string {
 
 /* ───────── inline content ───────── */
 
-function processInlineContent(text: string): InlineFormatResult {
+function processInlineContent(
+  text: string,
+  citationContext?: CitationContext,
+): InlineFormatResult {
   let equationCount = 0;
   let out = text; // work on RAW text — escape HTML only on non-math segments
 
@@ -457,7 +465,22 @@ function processInlineContent(text: string): InlineFormatResult {
   // Step 3: Inline citations: [1], [1,2], [1-3], [1, 2, 3]
   out = out.replace(
     /\[(\d+(?:\s*[,\-–]\s*\d+)*)\]/g,
-    (_whole, inner: string) => `<span class="ieee-citation">[${inner}]</span>`,
+    (_whole, inner: string) => {
+      const linkedInner = inner.replace(/\d+/g, (num) => {
+        const referenceNumber = Number.parseInt(num, 10);
+        const citationId = citationContext?.getNextCitationId();
+        if (
+          citationContext &&
+          Number.isFinite(referenceNumber) &&
+          referenceNumber > 0 &&
+          citationId
+        ) {
+          citationContext.registerCitation(referenceNumber, citationId);
+        }
+        return `<a${citationId ? ` id="${citationId}"` : ""} class="ieee-citation-link" href="#ref-${num}">[${num}]</a>`;
+      });
+      return `<span class="ieee-citation">${linkedInner}</span>`;
+    },
   );
 
   // Step 4: Restore math placeholders
@@ -917,11 +940,26 @@ export function formatToIEEE(rawText: string): FormatResult {
   let equationCount = 0;
   let algorithmCount = 0;
   let citationCount = 0;
+  let citationAnchorCounter = 1;
   let autoReferenceNumber = 1;
   let inAbstract = false;
   let inReferences = false;
   let abstractLabelWritten = false;
   let justAfterHeading = false; // track first-paragraph-after-heading
+  const citationBacklinks = new Map<number, string[]>();
+
+  const citationContext: CitationContext = {
+    getNextCitationId: () => {
+      const id = `cite-${citationAnchorCounter}`;
+      citationAnchorCounter += 1;
+      return id;
+    },
+    registerCitation: (referenceNumber: number, citationId: string) => {
+      const existing = citationBacklinks.get(referenceNumber) ?? [];
+      existing.push(citationId);
+      citationBacklinks.set(referenceNumber, existing);
+    },
+  };
 
   /* ── flush helpers ── */
 
@@ -943,7 +981,7 @@ export function formatToIEEE(rawText: string): FormatResult {
       return;
     }
 
-    const formatted = processInlineContent(text);
+    const formatted = processInlineContent(text, citationContext);
     equationCount += formatted.equationCount;
 
     // Count citations
@@ -978,8 +1016,28 @@ export function formatToIEEE(rawText: string): FormatResult {
     equationCount += inline.equationCount;
     const label = referenceLabel ?? `[${autoReferenceNumber}]`;
     if (!referenceLabel) autoReferenceNumber += 1;
+    const refNumberMatch = label.match(/\[(\d+)\]/);
+    const refId = refNumberMatch ? `ref-${refNumberMatch[1]}` : undefined;
+    const refNumber = refNumberMatch
+      ? Number.parseInt(refNumberMatch[1], 10)
+      : Number.NaN;
+    const backlinks = Number.isFinite(refNumber)
+      ? citationBacklinks.get(refNumber) ?? []
+      : [];
+    const backlinkHtml = backlinks.length
+      ? `<span class="reference-backlinks"> ${backlinks
+          .map(
+            (citationId, index) =>
+              `<a class="reference-backlink" href="#${citationId}" title="Back to citation${backlinks.length > 1 ? ` ${index + 1}` : ""}">↩</a>`,
+          )
+          .join(" ")}</span>`
+      : "";
     referenceLabel = null;
-    htmlParts.push(`<p class="reference-item">${label} ${inline.html}</p>`);
+    htmlParts.push(
+      `<p class="reference-item"${refId ? ` id="${refId}"` : ""}>` +
+        `<span class="reference-label">${label}</span> ${inline.html}${backlinkHtml}` +
+        `</p>`,
+    );
   };
 
   /* ── main loop ── */

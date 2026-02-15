@@ -286,6 +286,7 @@ def _format_ieee_with_ai(raw_text: str, format_type: str) -> Dict[str, Any] | No
     prompt = f"""You are an IEEE research paper formatting expert. Convert the following raw text into well-structured HTML for an IEEE {format_type} paper.
 
 CRITICAL RULES:
+0. First pass: fix grammar, punctuation, capitalization, and sentence flow while preserving technical meaning.
 1. Detect and structure sections: Title, Abstract, Introduction, Methodology, Results, Discussion, Conclusion, References
 2. Use this HTML structure:
    - Title: <h1>TITLE HERE</h1>
@@ -301,6 +302,11 @@ CRITICAL RULES:
      <thead><tr><th>Header1</th><th>Header2</th></tr></thead>
      <tbody><tr><td>Data1</td><td>Data2</td></tr></tbody>
    </table>
+     - If a table is malformed (inconsistent delimiters/column counts), normalize it:
+         - infer separators (|, tabs, commas, multiple spaces)
+         - infer header row when present
+         - ensure each row has the same number of columns (pad missing cells with empty strings)
+         - remove decorative ASCII border rows
 
 4. EQUATIONS - Convert LaTeX/math notation:
    - Inline math like $x^2$ becomes: <em>x²</em>
