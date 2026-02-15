@@ -33,11 +33,59 @@ const textToPaperSeed = (text: string): Paper[] => {
 
 const extractKeywordsFromText = (text: string, max = 8): string[] => {
   const stopwords = new Set([
-    "the", "and", "for", "with", "this", "that", "from", "into", "are", "was",
-    "were", "have", "has", "had", "will", "would", "can", "could", "should", "about",
-    "your", "their", "our", "but", "not", "than", "then", "also", "using", "used",
-    "use", "over", "under", "between", "among", "into", "onto", "in", "on", "at", "to",
-    "of", "a", "an", "is", "it", "as", "by", "or", "be", "we", "they", "you",
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "from",
+    "into",
+    "are",
+    "was",
+    "were",
+    "have",
+    "has",
+    "had",
+    "will",
+    "would",
+    "can",
+    "could",
+    "should",
+    "about",
+    "your",
+    "their",
+    "our",
+    "but",
+    "not",
+    "than",
+    "then",
+    "also",
+    "using",
+    "used",
+    "use",
+    "over",
+    "under",
+    "between",
+    "among",
+    "into",
+    "onto",
+    "in",
+    "on",
+    "at",
+    "to",
+    "of",
+    "a",
+    "an",
+    "is",
+    "it",
+    "as",
+    "by",
+    "or",
+    "be",
+    "we",
+    "they",
+    "you",
   ]);
 
   const counts = new Map<string, number>();
@@ -57,7 +105,11 @@ const textToDraftSeed = (text: string): Draft => {
   const clean = text.trim();
   const words = clean.split(/\s+/).filter(Boolean);
   const chunk = Math.max(80, Math.floor(words.length / 3));
-  const slice = (start: number) => words.slice(start, start + chunk).join(" ").trim();
+  const slice = (start: number) =>
+    words
+      .slice(start, start + chunk)
+      .join(" ")
+      .trim();
 
   return {
     abstract: slice(0),
@@ -66,7 +118,13 @@ const textToDraftSeed = (text: string): Draft => {
   };
 };
 
-type AgentView = "all" | "query" | "retrieval" | "summary" | "draft" | "plagiarism";
+type AgentView =
+  | "all"
+  | "query"
+  | "retrieval"
+  | "summary"
+  | "draft"
+  | "plagiarism";
 
 export default function AgentHubPage() {
   const [topic, setTopic] = useState("");
@@ -103,8 +161,12 @@ export default function AgentHubPage() {
     () => ({
       keywords: keywords.length,
       papers: papers.length,
-      summarySections: summary ? Object.keys(summary.section_summaries ?? {}).length : 0,
-      plagiarism: plagiarism?.overall_score ? `${plagiarism.overall_score.toFixed(1)}%` : "-",
+      summarySections: summary
+        ? Object.keys(summary.section_summaries ?? {}).length
+        : 0,
+      plagiarism: plagiarism?.overall_score
+        ? `${plagiarism.overall_score.toFixed(1)}%`
+        : "-",
     }),
     [keywords, papers.length, summary, plagiarism],
   );
@@ -146,7 +208,10 @@ export default function AgentHubPage() {
     setError(null);
     setLoading("Running query agent...");
     try {
-      const result = await api.query({ text: topicSeed, top_keywords: topKeywords });
+      const result = await api.query({
+        text: topicSeed,
+        top_keywords: topKeywords,
+      });
       setQueryResult(result);
       if (!topic.trim()) {
         setTopic(topicSeed);
@@ -192,7 +257,9 @@ export default function AgentHubPage() {
   };
 
   const handleSummarize = async () => {
-    const parsedPapers = papersInput.trim() ? parseJson<Paper[]>(papersInput) : null;
+    const parsedPapers = papersInput.trim()
+      ? parseJson<Paper[]>(papersInput)
+      : null;
     if (papersInput.trim() && !parsedPapers) return;
 
     let payloadPapers = parsedPapers ?? papers;
@@ -204,7 +271,9 @@ export default function AgentHubPage() {
     }
 
     if (!payloadPapers.length) {
-      setError("Provide papers JSON, retrieve papers, or upload a document first.");
+      setError(
+        "Provide papers JSON, retrieve papers, or upload a document first.",
+      );
       return;
     }
 
@@ -216,7 +285,10 @@ export default function AgentHubPage() {
     setError(null);
     setLoading("Running summarization agent...");
     try {
-      const result = await api.summarize({ papers: payloadPapers, keywords: payloadKeywords });
+      const result = await api.summarize({
+        papers: payloadPapers,
+        keywords: payloadKeywords,
+      });
       setSummary(result);
       setSummaryInput(pretty(result));
       if (!keywordsInput.trim() && payloadKeywords.length) {
@@ -265,7 +337,9 @@ export default function AgentHubPage() {
       }
 
       if (!payloadSummary) {
-        setError("Provide summary JSON, run summarization, or upload a document first.");
+        setError(
+          "Provide summary JSON, run summarization, or upload a document first.",
+        );
         return;
       }
 
@@ -301,22 +375,32 @@ export default function AgentHubPage() {
 
   const handlePlagiarism = async () => {
     const parsedDraft = draftInput.trim() ? parseJson<Draft>(draftInput) : null;
-    const parsedSources = sourcesInput.trim() ? parseJson<Paper[]>(sourcesInput) : null;
+    const parsedSources = sourcesInput.trim()
+      ? parseJson<Paper[]>(sourcesInput)
+      : null;
 
     if (draftInput.trim() && !parsedDraft) return;
     if (sourcesInput.trim() && !parsedSources) return;
 
-    const payloadDraft = parsedDraft ?? draft ?? (documentText.trim() ? textToDraftSeed(documentText) : null);
-    const payloadSources = parsedSources ?? (papers.length ? papers : textToPaperSeed(documentText));
+    const payloadDraft =
+      parsedDraft ??
+      draft ??
+      (documentText.trim() ? textToDraftSeed(documentText) : null);
+    const payloadSources =
+      parsedSources ?? (papers.length ? papers : textToPaperSeed(documentText));
     const payloadTopic = topic.trim() || documentText.trim().slice(0, 300);
 
     if (!payloadDraft) {
-      setError("Provide draft JSON, run draft agent, or upload a document first.");
+      setError(
+        "Provide draft JSON, run draft agent, or upload a document first.",
+      );
       return;
     }
 
     if (!payloadSources.length) {
-      setError("Provide source papers JSON, retrieve papers, or upload a document first.");
+      setError(
+        "Provide source papers JSON, retrieve papers, or upload a document first.",
+      );
       return;
     }
 
@@ -370,7 +454,7 @@ export default function AgentHubPage() {
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={error ? "danger" : loading ? "warning" : "success"}>
-              {error ? "Action needed" : loading ?? "Ready"}
+              {error ? "Action needed" : (loading ?? "Ready")}
             </Badge>
             <Badge tone="info">Independent mode</Badge>
           </div>
@@ -378,10 +462,26 @@ export default function AgentHubPage() {
       />
 
       <section className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Keywords" value={stats.keywords} caption="Active query terms" />
-        <StatCard label="Papers" value={stats.papers} caption="Loaded source papers" />
-        <StatCard label="Summary" value={stats.summarySections} caption="Section blocks" />
-        <StatCard label="Plagiarism" value={stats.plagiarism} caption="Latest score" />
+        <StatCard
+          label="Keywords"
+          value={stats.keywords}
+          caption="Active query terms"
+        />
+        <StatCard
+          label="Papers"
+          value={stats.papers}
+          caption="Loaded source papers"
+        />
+        <StatCard
+          label="Summary"
+          value={stats.summarySections}
+          caption="Section blocks"
+        />
+        <StatCard
+          label="Plagiarism"
+          value={stats.plagiarism}
+          caption="Latest score"
+        />
       </section>
 
       <SectionCard
@@ -395,7 +495,9 @@ export default function AgentHubPage() {
             className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3 text-left text-sm text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
           >
             <div className="font-semibold">Summarize document</div>
-            <div className="mt-1 text-xs text-cyan-300/80">No query/retrieval required</div>
+            <div className="mt-1 text-xs text-cyan-300/80">
+              No query/retrieval required
+            </div>
           </button>
           <button
             onClick={handleDraft}
@@ -403,7 +505,9 @@ export default function AgentHubPage() {
             className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 px-4 py-3 text-left text-sm text-fuchsia-200 hover:bg-fuchsia-500/20 disabled:opacity-50"
           >
             <div className="font-semibold">Draft from document</div>
-            <div className="mt-1 text-xs text-fuchsia-300/80">Auto-seeds missing summary</div>
+            <div className="mt-1 text-xs text-fuchsia-300/80">
+              Auto-seeds missing summary
+            </div>
           </button>
           <button
             onClick={handlePlagiarism}
@@ -411,21 +515,28 @@ export default function AgentHubPage() {
             className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
           >
             <div className="font-semibold">Plagiarism check</div>
-            <div className="mt-1 text-xs text-amber-300/80">Auto-seeds draft and sources</div>
+            <div className="mt-1 text-xs text-amber-300/80">
+              Auto-seeds draft and sources
+            </div>
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Focus view" description="Show all agents or focus on one agent panel.">
+      <SectionCard
+        title="Focus view"
+        description="Show all agents or focus on one agent panel."
+      >
         <div className="flex flex-wrap gap-2">
-          {([
-            ["all", "All"],
-            ["query", "Query"],
-            ["retrieval", "Retrieval"],
-            ["summary", "Summary"],
-            ["draft", "Draft"],
-            ["plagiarism", "Plagiarism"],
-          ] as Array<[AgentView, string]>).map(([view, label]) => (
+          {(
+            [
+              ["all", "All"],
+              ["query", "Query"],
+              ["retrieval", "Retrieval"],
+              ["summary", "Summary"],
+              ["draft", "Draft"],
+              ["plagiarism", "Plagiarism"],
+            ] as Array<[AgentView, string]>
+          ).map(([view, label]) => (
             <button
               key={view}
               onClick={() => setActiveView(view)}
@@ -441,260 +552,309 @@ export default function AgentHubPage() {
         </div>
       </SectionCard>
 
-      {(activeView === "all" || activeView === "summary" || activeView === "draft" || activeView === "plagiarism" || activeView === "query" || activeView === "retrieval") && (
-      <SectionCard title="Document input (PDF / DOC / DOCX / TXT)" description="Upload once, then run any agent directly.">
-        <div className="space-y-3">
-          <input
-            type="file"
-            accept=".txt,.pdf,.doc,.docx"
-            onChange={(e) => handleUploadDocument(e.target.files?.[0] ?? null)}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200"
-          />
-          <textarea
-            value={documentText}
-            onChange={(e) => setDocumentText(e.target.value)}
-            placeholder="Extracted document text appears here..."
-            rows={7}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs"
-          />
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setTopic(documentText.slice(0, 300))}
-              disabled={!documentText.trim()}
-              className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-            >
-              Use as topic seed
-            </button>
-            <button
-              onClick={() => setPapersInput(pretty(textToPaperSeed(documentText)))}
-              disabled={!documentText.trim()}
-              className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-            >
-              Create papers JSON from text
-            </button>
-            <button
-              onClick={() =>
-                setKeywordsInput(
-                  extractKeywordsFromText(`${topic} ${documentText}`.trim(), 8).join(", "),
-                )
+      {(activeView === "all" ||
+        activeView === "summary" ||
+        activeView === "draft" ||
+        activeView === "plagiarism" ||
+        activeView === "query" ||
+        activeView === "retrieval") && (
+        <SectionCard
+          title="Document input (PDF / DOC / DOCX / TXT)"
+          description="Upload once, then run any agent directly."
+        >
+          <div className="space-y-3">
+            <input
+              type="file"
+              accept=".txt,.pdf,.doc,.docx"
+              onChange={(e) =>
+                handleUploadDocument(e.target.files?.[0] ?? null)
               }
-              disabled={!documentText.trim()}
-              className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-            >
-              Generate keywords
-            </button>
-            <button
-              onClick={handleSummarize}
-              disabled={!documentText.trim() || !!loading}
-              className="rounded-lg bg-cyan-500 px-3 py-1 text-xs font-medium text-white hover:bg-cyan-400 disabled:opacity-50"
-            >
-              Summarize uploaded document now
-            </button>
-            <button
-              onClick={handleDraft}
-              disabled={!documentText.trim() || !!loading}
-              className="rounded-lg bg-fuchsia-500 px-3 py-1 text-xs font-medium text-white hover:bg-fuchsia-400 disabled:opacity-50"
-            >
-              Draft from uploaded document
-            </button>
-            <button
-              onClick={handlePlagiarism}
-              disabled={!documentText.trim() || !!loading}
-              className="rounded-lg bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:bg-amber-400 disabled:opacity-50"
-            >
-              Plagiarism check uploaded document
-            </button>
-          </div>
-          {documentWarnings.length > 0 && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
-              {documentWarnings.map((warning) => (
-                <div key={warning}>• {warning}</div>
-              ))}
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200"
+            />
+            <textarea
+              value={documentText}
+              onChange={(e) => setDocumentText(e.target.value)}
+              placeholder="Extracted document text appears here..."
+              rows={7}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setTopic(documentText.slice(0, 300))}
+                disabled={!documentText.trim()}
+                className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Use as topic seed
+              </button>
+              <button
+                onClick={() =>
+                  setPapersInput(pretty(textToPaperSeed(documentText)))
+                }
+                disabled={!documentText.trim()}
+                className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Create papers JSON from text
+              </button>
+              <button
+                onClick={() =>
+                  setKeywordsInput(
+                    extractKeywordsFromText(
+                      `${topic} ${documentText}`.trim(),
+                      8,
+                    ).join(", "),
+                  )
+                }
+                disabled={!documentText.trim()}
+                className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Generate keywords
+              </button>
+              <button
+                onClick={handleSummarize}
+                disabled={!documentText.trim() || !!loading}
+                className="rounded-lg bg-cyan-500 px-3 py-1 text-xs font-medium text-white hover:bg-cyan-400 disabled:opacity-50"
+              >
+                Summarize uploaded document now
+              </button>
+              <button
+                onClick={handleDraft}
+                disabled={!documentText.trim() || !!loading}
+                className="rounded-lg bg-fuchsia-500 px-3 py-1 text-xs font-medium text-white hover:bg-fuchsia-400 disabled:opacity-50"
+              >
+                Draft from uploaded document
+              </button>
+              <button
+                onClick={handlePlagiarism}
+                disabled={!documentText.trim() || !!loading}
+                className="rounded-lg bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:bg-amber-400 disabled:opacity-50"
+              >
+                Plagiarism check uploaded document
+              </button>
             </div>
-          )}
-        </div>
-      </SectionCard>
+            {documentWarnings.length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+                {documentWarnings.map((warning) => (
+                  <div key={warning}>• {warning}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </SectionCard>
       )}
 
       {(activeView === "all" || activeView === "query") && (
-      <SectionCard title="1) Query Agent" description="Input topic and extract keywords/subtopics.">
-        <div className="space-y-3">
-          <input
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="Research topic"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
-          />
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-zinc-400">Top keywords</label>
+        <SectionCard
+          title="1) Query Agent"
+          description="Input topic and extract keywords/subtopics."
+        >
+          <div className="space-y-3">
             <input
-              type="number"
-              min={3}
-              max={20}
-              value={topKeywords}
-              onChange={(e) => setTopKeywords(Number(e.target.value))}
-              className="w-24 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Research topic"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
             />
-            <button
-              onClick={handleQuery}
-              disabled={(!topic.trim() && !documentText.trim()) || !!loading}
-              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium hover:bg-indigo-400 disabled:opacity-50"
-            >
-              Run Query
-            </button>
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-zinc-400">Top keywords</label>
+              <input
+                type="number"
+                min={3}
+                max={20}
+                value={topKeywords}
+                onChange={(e) => setTopKeywords(Number(e.target.value))}
+                className="w-24 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+              />
+              <button
+                onClick={handleQuery}
+                disabled={(!topic.trim() && !documentText.trim()) || !!loading}
+                className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium hover:bg-indigo-400 disabled:opacity-50"
+              >
+                Run Query
+              </button>
+            </div>
+            {queryResult && (
+              <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
+                {pretty(queryResult)}
+              </pre>
+            )}
           </div>
-          {queryResult && (
-            <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
-              {pretty(queryResult)}
-            </pre>
-          )}
-        </div>
-      </SectionCard>
+        </SectionCard>
       )}
 
       {(activeView === "all" || activeView === "retrieval") && (
-      <SectionCard title="2) Retrieval Agent" description="Fetch papers from keywords or custom terms.">
-        <div className="space-y-3">
-          <input
-            value={keywordsInput}
-            onChange={(e) => setKeywordsInput(e.target.value)}
-            placeholder="keyword1, keyword2, keyword3"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
-          />
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-zinc-400">Max papers</label>
+        <SectionCard
+          title="2) Retrieval Agent"
+          description="Fetch papers from keywords or custom terms."
+        >
+          <div className="space-y-3">
             <input
-              type="number"
-              min={1}
-              max={20}
-              value={maxPapers}
-              onChange={(e) => setMaxPapers(Number(e.target.value))}
-              className="w-24 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+              value={keywordsInput}
+              onChange={(e) => setKeywordsInput(e.target.value)}
+              placeholder="keyword1, keyword2, keyword3"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
             />
-            <button
-              onClick={handleRetrieve}
-              disabled={(!keywords.length && !documentText.trim()) || !!loading}
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium hover:bg-emerald-400 disabled:opacity-50"
-            >
-              Run Retrieval
-            </button>
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-zinc-400">Max papers</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={maxPapers}
+                onChange={(e) => setMaxPapers(Number(e.target.value))}
+                className="w-24 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+              />
+              <button
+                onClick={handleRetrieve}
+                disabled={
+                  (!keywords.length && !documentText.trim()) || !!loading
+                }
+                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium hover:bg-emerald-400 disabled:opacity-50"
+              >
+                Run Retrieval
+              </button>
+            </div>
+            <textarea
+              rows={8}
+              value={papersInput}
+              onChange={(e) => setPapersInput(e.target.value)}
+              placeholder="Paper[] JSON (optional manual input)"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  papers.length && exportJson("papers.json", papers)
+                }
+                className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              >
+                Export papers JSON
+              </button>
+            </div>
           </div>
-          <textarea
-            rows={8}
-            value={papersInput}
-            onChange={(e) => setPapersInput(e.target.value)}
-            placeholder="Paper[] JSON (optional manual input)"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={() => papers.length && exportJson("papers.json", papers)}
-              className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-            >
-              Export papers JSON
-            </button>
-          </div>
-        </div>
-      </SectionCard>
+        </SectionCard>
       )}
 
       {(activeView === "all" || activeView === "summary") && (
-      <SectionCard title="3) Summarization Agent" description="Summarize provided papers + keywords.">
-        <div className="space-y-3">
-          <button
-            onClick={handleSummarize}
-            disabled={(!papers.length && !papersInput.trim() && !documentText.trim()) || !!loading}
-            className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium hover:bg-cyan-400 disabled:opacity-50"
-          >
-            Run Summarization
-          </button>
-          <textarea
-            rows={8}
-            value={summaryInput}
-            onChange={(e) => setSummaryInput(e.target.value)}
-            placeholder="ComprehensiveSummary JSON"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
-          />
-          <button
-            onClick={() => summary && exportJson("summary.json", summary)}
-            className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Export summary JSON
-          </button>
-          {summary && (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
-              <div className="mb-2 text-zinc-400">Summary preview</div>
-              <div className="max-h-52 overflow-auto whitespace-pre-wrap">
-                {String(summary.executive_summary ?? "Summary generated")}
+        <SectionCard
+          title="3) Summarization Agent"
+          description="Summarize provided papers + keywords."
+        >
+          <div className="space-y-3">
+            <button
+              onClick={handleSummarize}
+              disabled={
+                (!papers.length &&
+                  !papersInput.trim() &&
+                  !documentText.trim()) ||
+                !!loading
+              }
+              className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium hover:bg-cyan-400 disabled:opacity-50"
+            >
+              Run Summarization
+            </button>
+            <textarea
+              rows={8}
+              value={summaryInput}
+              onChange={(e) => setSummaryInput(e.target.value)}
+              placeholder="ComprehensiveSummary JSON"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
+            />
+            <button
+              onClick={() => summary && exportJson("summary.json", summary)}
+              className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+              Export summary JSON
+            </button>
+            {summary && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
+                <div className="mb-2 text-zinc-400">Summary preview</div>
+                <div className="max-h-52 overflow-auto whitespace-pre-wrap">
+                  {String(summary.executive_summary ?? "Summary generated")}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </SectionCard>
+            )}
+          </div>
+        </SectionCard>
       )}
 
       {(activeView === "all" || activeView === "draft") && (
-      <SectionCard title="4) Draft Agent" description="Generate abstract/introduction/related work.">
-        <div className="space-y-3">
-          <button
-            onClick={handleDraft}
-            disabled={(!summary && !summaryInput.trim() && !documentText.trim()) || (!topic.trim() && !documentText.trim()) || (!!loading)}
-            className="rounded-lg bg-fuchsia-500 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400 disabled:opacity-50"
-          >
-            Run Draft
-          </button>
-          <textarea
-            rows={8}
-            value={draftInput}
-            onChange={(e) => setDraftInput(e.target.value)}
-            placeholder="Draft JSON"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
-          />
-          <button
-            onClick={() => draft && exportJson("draft.json", draft)}
-            className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Export draft JSON
-          </button>
-          {draft && (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
-              <div className="mb-2 text-zinc-400">Draft preview (Abstract)</div>
-              <div className="max-h-40 overflow-auto whitespace-pre-wrap">{draft.abstract}</div>
-            </div>
-          )}
-        </div>
-      </SectionCard>
+        <SectionCard
+          title="4) Draft Agent"
+          description="Generate abstract/introduction/related work."
+        >
+          <div className="space-y-3">
+            <button
+              onClick={handleDraft}
+              disabled={
+                (!summary && !summaryInput.trim() && !documentText.trim()) ||
+                (!topic.trim() && !documentText.trim()) ||
+                !!loading
+              }
+              className="rounded-lg bg-fuchsia-500 px-4 py-2 text-sm font-medium hover:bg-fuchsia-400 disabled:opacity-50"
+            >
+              Run Draft
+            </button>
+            <textarea
+              rows={8}
+              value={draftInput}
+              onChange={(e) => setDraftInput(e.target.value)}
+              placeholder="Draft JSON"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
+            />
+            <button
+              onClick={() => draft && exportJson("draft.json", draft)}
+              className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+              Export draft JSON
+            </button>
+            {draft && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
+                <div className="mb-2 text-zinc-400">
+                  Draft preview (Abstract)
+                </div>
+                <div className="max-h-40 overflow-auto whitespace-pre-wrap">
+                  {draft.abstract}
+                </div>
+              </div>
+            )}
+          </div>
+        </SectionCard>
       )}
 
       {(activeView === "all" || activeView === "plagiarism") && (
-      <SectionCard title="5) Plagiarism Agent" description="Check draft against source papers.">
-        <div className="space-y-3">
-          <textarea
-            rows={6}
-            value={sourcesInput}
-            onChange={(e) => setSourcesInput(e.target.value)}
-            placeholder="Source Paper[] JSON (optional override)"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
-          />
-          <button
-            onClick={handlePlagiarism}
-            disabled={
-              (!draft && !draftInput.trim() && !documentText.trim()) ||
-              (!papers.length && !sourcesInput.trim() && !documentText.trim()) ||
-              (!topic.trim() && !documentText.trim()) ||
-              !!loading
-            }
-            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium hover:bg-amber-400 disabled:opacity-50"
-          >
-            Run Plagiarism
-          </button>
-          {plagiarism && (
-            <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
-              {pretty(plagiarism)}
-            </pre>
-          )}
-        </div>
-      </SectionCard>
+        <SectionCard
+          title="5) Plagiarism Agent"
+          description="Check draft against source papers."
+        >
+          <div className="space-y-3">
+            <textarea
+              rows={6}
+              value={sourcesInput}
+              onChange={(e) => setSourcesInput(e.target.value)}
+              placeholder="Source Paper[] JSON (optional override)"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs"
+            />
+            <button
+              onClick={handlePlagiarism}
+              disabled={
+                (!draft && !draftInput.trim() && !documentText.trim()) ||
+                (!papers.length &&
+                  !sourcesInput.trim() &&
+                  !documentText.trim()) ||
+                (!topic.trim() && !documentText.trim()) ||
+                !!loading
+              }
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium hover:bg-amber-400 disabled:opacity-50"
+            >
+              Run Plagiarism
+            </button>
+            {plagiarism && (
+              <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-300">
+                {pretty(plagiarism)}
+              </pre>
+            )}
+          </div>
+        </SectionCard>
       )}
 
       <SectionCard title="Status">
@@ -704,7 +864,9 @@ export default function AgentHubPage() {
           ) : loading ? (
             <div className="text-amber-300">{loading}</div>
           ) : (
-            <div className="text-emerald-300">All good. Pick any agent and run.</div>
+            <div className="text-emerald-300">
+              All good. Pick any agent and run.
+            </div>
           )}
         </div>
       </SectionCard>

@@ -51,7 +51,9 @@ export const api = {
       const text = await res.text();
       try {
         const parsed = JSON.parse(text) as { detail?: string };
-        throw new Error(parsed.detail || text || `Request failed: ${res.status}`);
+        throw new Error(
+          parsed.detail || text || `Request failed: ${res.status}`,
+        );
       } catch {
         throw new Error(text || `Request failed: ${res.status}`);
       }

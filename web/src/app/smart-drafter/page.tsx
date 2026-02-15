@@ -135,7 +135,11 @@ export default function SmartDrafterPage() {
     if (!editor) return;
     const index = citations.findIndex((c) => c.id === citationId);
     if (index === -1) return;
-    editor.chain().focus().insertContent(`[${index + 1}]`).run();
+    editor
+      .chain()
+      .focus()
+      .insertContent(`[${index + 1}]`)
+      .run();
   };
 
   const insertTable = (rows: number, cols: number, withHeader: boolean) => {
@@ -145,25 +149,25 @@ export default function SmartDrafterPage() {
     let tableHTML = '<table class="ieee-table"><thead>';
 
     if (withHeader) {
-      tableHTML += '<tr>';
+      tableHTML += "<tr>";
       for (let i = 0; i < cols; i++) {
         tableHTML += `<th>Header ${i + 1}</th>`;
       }
-      tableHTML += '</tr></thead><tbody>';
+      tableHTML += "</tr></thead><tbody>";
       rows--;
     } else {
-      tableHTML += '</thead><tbody>';
+      tableHTML += "</thead><tbody>";
     }
 
     for (let i = 0; i < rows; i++) {
-      tableHTML += '<tr>';
+      tableHTML += "<tr>";
       for (let j = 0; j < cols; j++) {
         tableHTML += `<td>Cell</td>`;
       }
-      tableHTML += '</tr>';
+      tableHTML += "</tr>";
     }
 
-    tableHTML += '</tbody></table>';
+    tableHTML += "</tbody></table>";
     editor.chain().focus().insertContent(tableHTML).run();
   };
 
