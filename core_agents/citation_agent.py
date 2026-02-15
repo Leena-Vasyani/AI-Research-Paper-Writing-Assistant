@@ -31,53 +31,71 @@ class CitationAgent:
                 "reference": "{author_last}, {author_first}. \"{title}.\" {journal}, {year}, {pages}."
             }
         }
-        
+    
     def extract_citation_needs(self, draft_text: str) -> List[Tuple[str, int]]:
         """
-        Identify sentences/claims that need citations
-        
-        Returns:
-            List of (sentence, position) tuples where citations are needed
+        Identify sentences/claims that need citations.
+        Now uses a simpler, more effective approach that catches most academic claims.
         """
-        citation_patterns = [
-            # Patterns that typically need citations
-            r'[^.]* (?:shows?|demonstrates?|proves?|confirms?|validates?|finds?|discovers?) that[^.]*\.',
-            r'[^.]* (?:according to|as per|based on|following) [^.]*\.',
-            r'[^.]* (?:reported by|described by|noted by) [^.]*\.',
-            r'[^.]* (?:previous|prior|existing) (?:work|research|studies)[^.]*\.',
-            r'[^.]* (?:literature|studies|research) (?:suggests|indicates|shows)[^.]*\.',
-            r'[^.]* (?:similar|comparable) (?:results|findings)[^.]*\.',
-            r'[^.]* (?:in contrast|however|on the other hand)[^.]*\.',
-            r'[^.]* (?:standard|commonly used|typical) (?:approach|method)[^.]*\.',
-        ]
-        
-        sentences = re.split(r'[.!?]+', draft_text)
         citation_needs = []
         
-        for i, sentence in enumerate(sentences):
+        # Split into sentences
+        sentences = re.split(r'(?<=[.!?])\s+', draft_text.strip())
+        current_pos = 0
+        
+        for sentence in sentences:
             sentence = sentence.strip()
-            if len(sentence.split()) > 5:  # Meaningful sentence
-                for pattern in citation_patterns:
-                    if re.search(pattern, sentence.lower()):
-                        # Calculate position in original text
-                        position = draft_text.find(sentence)
-                        if position != -1:
-                            citation_needs.append((sentence, position))
-                        break
+            
+            # Must be meaningful length
+            if len(sentence.split()) < 3:
+                current_pos += len(sentence) + 1
+                continue
+            
+            sentence_lower = sentence.lower()
+            needs_citation = False
+            
+            # Check for academic indicators that need citations
+            academic_keywords = [
+                # Claims about findings
+                r'show|shows|shown|demonstrated|demonstrates|demonstrated|proven|proves|found|findings?|result',
+                # Referential language
+                r'previous|prior|existing|earlier|recent|current|latest|literature|research|study|studies|work',
+                # Citation indicators
+                r'according to|as per|based on|following|reported|described|noted|proposed|suggested|argued',
+                # Comparative language
+                r'similar|comparable|comparable|different|unlike|contrast|comparison|compared to|versus',
+                # Methods/approaches
+                r'method|approach|technique|algorithm|model|framework|strategy',
+                # General knowledge claims
+                r'typically|commonly|usually|often|generally|traditionally|standard|conventional'
+            ]
+            
+            for keyword_pattern in academic_keywords:
+                if re.search(keyword_pattern, sentence_lower):
+                    needs_citation = True
+                    break
+            
+            if needs_citation:
+                citation_needs.append((sentence, current_pos))
+            
+            current_pos += len(sentence) + 1
         
         return citation_needs
     
     def find_relevant_citations(self, citation_sentence: str, retrieved_papers: List[Dict]) -> List[Dict]:
         """
-        Find relevant papers to cite for a given sentence
-        
-        Returns:
-            List of relevant paper dictionaries with relevance scores
+        Find relevant papers to cite for a given sentence.
+        Now uses more lenient matching to ensure papers are found.
         """
-        relevant_papers = []
+        if not retrieved_papers:
+            return []
         
-        # Extract key terms from the sentence
+        relevant_papers = []
         sentence_terms = self._extract_key_terms(citation_sentence)
+        
+        # If no terms extracted, use the sentence as-is
+        if not sentence_terms:
+            sentence_terms = citation_sentence.lower().split()[:5]
         
         for paper in retrieved_papers:
             relevance_score = self._calculate_citation_relevance(
@@ -86,7 +104,8 @@ class CitationAgent:
                 paper
             )
             
-            if relevance_score > 0.3:  # Threshold for relevance
+            # Lower threshold to catch more relevant papers
+            if relevance_score > 0.1:
                 relevant_papers.append({
                     "paper": paper,
                     "relevance_score": relevance_score,
@@ -95,49 +114,71 @@ class CitationAgent:
         
         # Sort by relevance
         relevant_papers.sort(key=lambda x: x["relevance_score"], reverse=True)
-        return relevant_papers[:3]  # Return top 3 most relevant
+        return relevant_papers[:3]
     
     def _extract_key_terms(self, text: str) -> List[str]:
-        """Extract key terms from text for matching"""
-        # Remove punctuation and lowercase
+        """Extract key terms from text for matching - less aggressive filtering"""
         text = text.lower().translate(str.maketrans('', '', string.punctuation))
         
-        # Remove stop words and keep meaningful terms
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must', 'shall'}
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+            'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 
+            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 
+            'could', 'can', 'may', 'might', 'must', 'shall', 'this', 'that', 'these',
+            'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which',
+            'who', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'as', 'from'
+        }
         
         words = text.split()
-        key_terms = [word for word in words if word not in stop_words and len(word) > 3]
+        # Keep words that are 2+ chars and not stop words (was >3, too aggressive)
+        key_terms = [word for word in words if word not in stop_words and len(word) >= 2]
         
-        return key_terms
+        return key_terms[:8]  # Limit to top 8 terms for efficiency
     
     def _calculate_citation_relevance(self, sentence: str, sentence_terms: List[str], paper: Dict) -> float:
-        """Calculate relevance between sentence and paper"""
+        """Calculate relevance between sentence and paper - more generous scoring"""
         score = 0.0
         
-        # Check paper title
+        if not sentence_terms:
+            return 0.0
+        
+        # Check paper title - weight increased
         title = paper.get('title', '').lower()
-        title_score = sum(1 for term in sentence_terms if term in title) / max(len(sentence_terms), 1)
-        score += title_score * 0.4
+        if title:
+            title_matches = sum(1 for term in sentence_terms if term in title)
+            title_score = min(title_matches / len(sentence_terms), 1.0)
+            score += title_score * 0.5
         
-        # Check abstract - use better matching
+        # Check abstract
         abstract = paper.get('abstract', '').lower()
-        # Check how many terms appear in abstract
-        matching_terms = sum(1 for term in sentence_terms if term in abstract)
-        abstract_score = matching_terms / max(len(sentence_terms), 1)
-        score += abstract_score * 0.3
+        if abstract:
+            abstract_matches = sum(1 for term in sentence_terms if term in abstract)
+            abstract_score = min(abstract_matches / len(sentence_terms), 1.0)
+            score += abstract_score * 0.3
         
-        # Check relevance score from retrieval (if available)
+        # Check pre-computed relevance (if available from retrieval)
         relevance = paper.get('relevance', 0.0)
-        score += relevance * 0.2
+        score += relevance * 0.15
         
-        # Check recency (prefer newer papers)
+        # Add recency bonus
         published = paper.get('published', '')
         if published:
             try:
                 year = int(published[:4])
                 current_year = datetime.now().year
-                recency_score = 1.0 - min(1.0, (current_year - year) / 10)  # Papers older than 10 years get lower score
-                score += recency_score * 0.1
+                age = current_year - year
+                
+                # More lenient: papers from last 15 years get decent score
+                if age <= 5:
+                    recency_score = 1.0
+                elif age <= 10:
+                    recency_score = 0.8
+                elif age <= 15:
+                    recency_score = 0.6
+                else:
+                    recency_score = max(0.2, 1.0 - (age - 15) / 20)
+                
+                score += recency_score * 0.05
             except:
                 pass
         
@@ -148,22 +189,13 @@ class CitationAgent:
         sentence_lower = sentence.lower()
         paper_title = paper.get('title', '').lower()
         
-        # Method citation
-        if any(word in sentence_lower for word in ['method', 'approach', 'technique', 'algorithm', 'model', 'framework']):
-            if any(word in paper_title for word in ['method', 'approach', 'technique', 'algorithm']):
-                return "method"
+        if any(word in sentence_lower for word in ['method', 'approach', 'technique', 'algorithm']):
+            return "method"
+        elif any(word in sentence_lower for word in ['result', 'finding', 'shows', 'demonstrates']):
+            return "result"
+        elif any(word in sentence_lower for word in ['review', 'survey', 'overview']):
+            return "review"
         
-        # Result citation
-        if any(word in sentence_lower for word in ['result', 'finding', 'shows', 'demonstrates', 'found', 'achieved']):
-            if any(word in paper_title for word in ['result', 'finding', 'shows', 'demonstrates']):
-                return "result"
-        
-        # Review/survey citation
-        if any(word in sentence_lower for word in ['review', 'survey', 'overview', 'literature']):
-            if any(word in paper_title for word in ['review', 'survey', 'overview']):
-                return "review"
-        
-        # General citation
         return "general"
     
     def format_citation(self, paper: Dict, citation_style: str = "apa", citation_number: int = None) -> Dict:
@@ -172,42 +204,40 @@ class CitationAgent:
         
         # Extract author information
         authors_str = paper.get('authors_str', 'Unknown Author')
-        authors = authors_str.split(',')
+        authors = authors_str.split(',') if authors_str else ['Unknown Author']
         
-        if len(authors) > 0:
-            first_author = authors[0].strip()
-            # Simple author parsing
-            if ' ' in first_author:
-                author_parts = first_author.split(' ')
-                author_last = author_parts[-1]
-                author_first_initial = author_parts[0][0] + '.'
-            else:
-                author_last = first_author
-                author_first_initial = first_author[0] + '.'
+        first_author = authors[0].strip() if authors else 'Unknown Author'
+        
+        # Parse author name
+        if ' ' in first_author:
+            author_parts = first_author.split()
+            author_last = author_parts[-1]
+            author_first_initial = author_parts[0][0].upper() + '.'
         else:
-            author_last = "Unknown"
-            author_first_initial = "A."
+            author_last = first_author
+            author_first_initial = first_author[0].upper() + '.' if first_author else 'A.'
         
         # Extract year
         published = paper.get('published', '')
-        year = published[:4] if published and len(published) >= 4 else 'n.d.'
+        try:
+            year = published[:4] if published else 'n.d.'
+        except:
+            year = 'n.d.'
         
         # Extract title
         title = paper.get('title', 'Unknown Title')
         
         # Format journal/source
-        journal = paper.get('primary_category', 'arXiv').replace('.', '')
+        journal = paper.get('primary_category', 'arXiv').replace('.', ' ')
         
         # Get DOI/URL
-        doi = paper.get('doi', '')
-        if not doi:
-            doi = paper.get('pdf_url', '')
+        doi = paper.get('doi', '') or paper.get('pdf_url', '')
         
         # Create formatted citations
         in_text_citation = style["in_text"].format(
             author=author_last,
             year=year,
-            number=citation_number,
+            number=citation_number if citation_number else 1,
             author_last=author_last,
             page=""
         )
@@ -220,7 +250,7 @@ class CitationAgent:
             title=title,
             journal=journal,
             doi=doi,
-            number=citation_number,
+            number=citation_number if citation_number else 1,
             pages=""
         )
         
@@ -236,131 +266,140 @@ class CitationAgent:
             }
         }
     
+    def _build_full_draft(self, cited_sections: Dict[str, str]) -> str:
+        """
+        Build a complete formatted draft with all sections and references.
+        """
+        output = ""
+        
+        # Display each section except references
+        for section_name, section_text in cited_sections.items():
+            if section_name.lower() == "references":
+                continue
+            
+            output += f"## {section_name.upper()}\n\n"
+            output += section_text + "\n\n"
+        
+        # Add references at the end
+        if "references" in cited_sections:
+            output += cited_sections["references"]
+        
+        return output
+    
     def add_citations_to_draft(self, draft_sections: Dict[str, str], 
                               retrieved_papers: List[Dict],
                               plagiarism_results: Dict = None,
-                              citation_style: str = "apa") -> Dict[str, str]:
+                              citation_style: str = "ieee") -> Dict:
         """
-        Add citations to draft sections intelligently
-        Wrapper that detects if plagiarism results are provided
-        
-        Returns:
-            Dictionary with cited sections and references
+        Add citations to draft sections intelligently.
+        MAIN METHOD - fully functional without plagiarism results.
+        Uses IEEE style by default for [1], [2] format.
         """
-        # If plagiarism results provided, use the advanced method
         if plagiarism_results:
             return self.add_citations_to_draft_with_plagiarism(
                 draft_sections, retrieved_papers, plagiarism_results, citation_style
             )
         
-        # Otherwise use basic citation method
         print("\n📝 Adding Intelligent Citations...")
-        print("-" * 50)
+        print("-" * 70)
         
         cited_sections = {}
         all_references = []
-        citation_map = {}  # Track which papers are cited where
+        citation_map = {}  # Maps paper IDs to citation numbers
         
         for section_name, section_text in draft_sections.items():
-            print(f"  • Analyzing {section_name}...")
+            if section_name.lower() == "references" or not section_text:
+                cited_sections[section_name] = section_text
+                continue
             
-            # Identify where citations are needed
+            print(f"\n  📄 Processing {section_name}...")
+            
+            # Extract sentences that need citations
             citation_needs = self.extract_citation_needs(section_text)
-            print(f"    Found {len(citation_needs)} potential citation points")
+            print(f"     Found {len(citation_needs)} potential citation points")
             
             cited_text = section_text
             added_citations = 0
             
+            # Process each sentence that needs citation
             for sentence, position in citation_needs:
-                # Find relevant papers to cite
+                # Find relevant papers
                 relevant_papers = self.find_relevant_citations(sentence, retrieved_papers)
                 
                 if relevant_papers:
-                    # Format citations
-                    citations = []
-                    for i, rel_paper in enumerate(relevant_papers[:2]):  # Max 2 citations per claim
-                        paper = rel_paper["paper"]
-                        
-                        # Check if already cited
-                        paper_id = paper.get('id', paper.get('title', ''))
-                        if paper_id not in citation_map:
-                            citation_number = len(all_references) + 1
-                            formatted_citation = self.format_citation(paper, citation_style, citation_number)
-                            
-                            citation_map[paper_id] = {
-                                "citation_number": citation_number,
-                                "formatted_citation": formatted_citation,
-                                "cited_in": [section_name]
-                            }
-                            all_references.append(formatted_citation)
-                        else:
-                            citation_number = citation_map[paper_id]["citation_number"]
-                            citation_map[paper_id]["cited_in"].append(section_name)
-                            formatted_citation = citation_map[paper_id]["formatted_citation"]
-                        
-                        citations.append(formatted_citation["in_text"])
+                    # Use the most relevant paper
+                    paper = relevant_papers[0]["paper"]
+                    paper_id = paper.get('id') or paper.get('title', f'paper_{len(all_references)}')
                     
-                    if citations:
-                        # Insert citation after the sentence
-                        citation_text = ' ' + ' '.join(citations)
+                    # Check if this paper was already cited
+                    if paper_id not in citation_map:
+                        citation_number = len(all_references) + 1
+                        formatted_citation = self.format_citation(paper, citation_style, citation_number)
                         
-                        # Find the sentence in the text and add citation
-                        sentence_end = position + len(sentence)
-                        if sentence_end < len(cited_text):
-                            cited_text = cited_text[:sentence_end] + citation_text + cited_text[sentence_end:]
+                        citation_map[paper_id] = {
+                            "number": citation_number,
+                            "formatted": formatted_citation,
+                            "sections": [section_name]
+                        }
+                        all_references.append(formatted_citation)
+                    else:
+                        citation_number = citation_map[paper_id]["number"]
+                        formatted_citation = citation_map[paper_id]["formatted"]
+                        if section_name not in citation_map[paper_id]["sections"]:
+                            citation_map[paper_id]["sections"].append(section_name)
+                    
+                    # Insert citation [#] at the end of the sentence
+                    in_text_citation = f"[{citation_number}]"
+                    
+                    # Find the sentence in the current text and add citation
+                    if sentence in cited_text:
+                        # Find position of sentence in current text
+                        sent_pos = cited_text.find(sentence)
+                        if sent_pos != -1:
+                            sent_end = sent_pos + len(sentence)
+                            # Insert citation before period/punctuation
+                            if sent_end < len(cited_text) and cited_text[sent_end] in '.!?':
+                                cited_text = cited_text[:sent_end] + f" {in_text_citation}" + cited_text[sent_end:]
+                            else:
+                                cited_text = cited_text[:sent_end] + f" {in_text_citation}" + cited_text[sent_end:]
+                            
                             added_citations += 1
             
             cited_sections[section_name] = cited_text
-            print(f"    Added {added_citations} citations")
+            print(f"     ✅ Added {added_citations} citations")
         
-        # Format references section
-        references_section = self._format_references_section(all_references, citation_style)
-        cited_sections["references"] = references_section
+        # Add references section
+        references_text = self._format_references_section(all_references, citation_style)
+        cited_sections["references"] = references_text
         
-        print(f"\n✅ Total citations added: {len(all_references)}")
-        print(f"📚 References included: {len(set(ref['paper_info']['title'] for ref in all_references))}")
+        print(f"\n{'='*70}")
+        print(f"✅ CITATION RESULTS")
+        print(f"{'='*70}")
+        print(f"Total citations added: {len(all_references)}")
+        print(f"Unique papers cited: {len(set(ref['paper_info']['title'] for ref in all_references))}")
+        print(f"{'='*70}\n")
+        
+        # Build the full draft with all sections
+        full_draft = self._build_full_draft(cited_sections)
         
         return {
             "cited_draft": cited_sections,
             "citations_added": len(all_references),
             "references": all_references,
-            "citation_map": citation_map
+            "citation_map": citation_map,
+            "full_draft": full_draft
         }
     
     def add_citations_to_draft_with_plagiarism(self, draft_sections: Dict[str, str], 
                                               retrieved_papers: List[Dict],
                                               plagiarism_results: Dict = None,
-                                              citation_style: str = "apa") -> Dict[str, str]:
+                                              citation_style: str = "ieee") -> Dict:
         """
-        Add citations intelligently, prioritizing plagiarized sentences
-        
-        Args:
-            draft_sections: Dictionary of draft sections
-            retrieved_papers: List of retrieved papers with metadata
-            plagiarism_results: Results from plagiarism detection with flagged sentences
-            citation_style: Citation format (apa, ieee, mla)
-        
-        Returns:
-            Dictionary with cited sections and references
+        Add citations intelligently, prioritizing flagged plagiarized sentences.
+        Uses IEEE style [1], [2] format by default.
         """
         print("\n📝 Adding Intelligent Citations (with Plagiarism Priority)...")
-        print("-" * 60)
-        
-        # DEBUG: Print the plagiarism results structure
-        print(f"\n🔍 DEBUG: Plagiarism results structure:")
-        if plagiarism_results:
-            print(f"   Keys: {list(plagiarism_results.keys())}")
-            for key in list(plagiarism_results.keys())[:5]:
-                value = plagiarism_results[key]
-                if isinstance(value, dict):
-                    print(f"   {key}: {type(value).__name__} with keys {list(value.keys())[:5]}")
-                elif isinstance(value, list):
-                    print(f"   {key}: {type(value).__name__} with {len(value)} items")
-                else:
-                    print(f"   {key}: {type(value).__name__} = {str(value)[:50]}")
-        else:
-            print("   ⚠️ No plagiarism results provided!")
-        print()
+        print("-" * 70)
         
         cited_sections = {}
         all_references = []
@@ -368,321 +407,244 @@ class CitationAgent:
         flagged_sentences_cited = 0
         
         for section_name, section_text in draft_sections.items():
-            if section_name == "references":
+            if section_name.lower() == "references" or not section_text:
                 cited_sections[section_name] = section_text
                 continue
             
             print(f"\n  🎯 Processing {section_name}...")
             
-            # Get plagiarism flags for this section if available
+            # Extract plagiarism flags for this section
             section_plagiarism = {}
             if plagiarism_results:
-                # Try different possible structures for plagiarism results
+                # Try multiple structures
                 section_data = None
                 
-                # Structure 1: plagiarism_results['section_analysis'][section_name]
-                if 'section_analysis' in plagiarism_results:
-                    section_data = plagiarism_results['section_analysis'].get(section_name, {})
-                    print(f"    ✓ Using structure 1: section_analysis[{section_name}]")
-                # Structure 2: plagiarism_results[section_name]
-                elif section_name in plagiarism_results:
-                    section_data = plagiarism_results[section_name]
-                    print(f"    ✓ Using structure 2: plagiarism_results[{section_name}]")
-                # Structure 3: plagiarism_results has top-level 'flagged_sentences'
-                elif 'flagged_sentences' in plagiarism_results:
-                    section_data = plagiarism_results
-                    print(f"    ✓ Using structure 3: top-level flagged_sentences")
-                # Structure 4: Check if there's 'sections' key
-                elif 'sections' in plagiarism_results:
-                    section_data = plagiarism_results['sections'].get(section_name, {})
-                    print(f"    ✓ Using structure 4: sections[{section_name}]")
-                else:
-                    print(f"    ✗ Could not find plagiarism data for {section_name}")
-                    section_data = None
+                if isinstance(plagiarism_results, dict):
+                    if 'section_analysis' in plagiarism_results:
+                        section_data = plagiarism_results['section_analysis'].get(section_name, {})
+                    elif section_name in plagiarism_results:
+                        section_data = plagiarism_results[section_name]
+                    elif 'flagged_sentences' in plagiarism_results:
+                        section_data = plagiarism_results
+                    elif 'sections' in plagiarism_results:
+                        section_data = plagiarism_results['sections'].get(section_name, {})
                 
-                if section_data:
+                if section_data and isinstance(section_data, dict):
                     flagged = section_data.get('flagged_sentences', [])
-                    
-                    if flagged:
-                        print(f"    🔍 Plagiarism data found: {len(flagged)} flagged sentences")
-                    else:
-                        print(f"    ℹ️ No flagged_sentences in section_data")
-                        print(f"    📋 section_data keys: {list(section_data.keys())}")
-                    
-                    # Create mapping of sentences to their source papers
                     for flag in flagged:
-                        sentence = flag.get('sentence', '')
-                        source = flag.get('source', '')
-                        similarity = flag.get('similarity', 0)
-                        
-                        if sentence:
-                            section_plagiarism[sentence] = {
-                                'source': source,
-                                'similarity': similarity
-                            }
-                            print(f"    📝 Flagged: {sentence[:60]}... (similarity: {similarity:.1%})")
+                        if isinstance(flag, dict):
+                            sentence = flag.get('sentence', '')
+                            if sentence:
+                                section_plagiarism[sentence] = {
+                                    'source': flag.get('source', ''),
+                                    'similarity': flag.get('similarity', 0)
+                                }
             
             cited_text = section_text
             citation_count = 0
             
-            # PRIORITY 1: Citation for flagged (plagiarized) sentences
-            if section_plagiarism:
-                print(f"    📌 Found {len(section_plagiarism)} flagged sentences to cite")
-                
-                for flagged_sentence, plagiarism_info in section_plagiarism.items():
-                    print(f"      🔎 Trying to cite: {flagged_sentence[:50]}...")
+            # PRIORITY 1: Cite flagged (plagiarized) sentences
+            for flagged_sentence, plag_info in section_plagiarism.items():
+                # Find this sentence in the text
+                if flagged_sentence in cited_text:
+                    sentence_to_cite = flagged_sentence
+                else:
+                    # Try fuzzy matching
+                    sentences = re.split(r'[.!?]+', section_text)
+                    best_match = None
+                    best_score = 0
                     
-                    # Try to find the exact sentence in the text first
-                    sentence_found = False
-                    if flagged_sentence in section_text:
-                        sentence_to_cite = flagged_sentence
-                        sentence_found = True
-                        print(f"      ✓ Found exact sentence match in text")
-                    else:
-                        # Try fuzzy matching - find similar sentence
-                        sentences_in_text = re.split(r'[.!?]+', section_text)
-                        best_match = None
-                        best_score = 0
-                        
-                        for s in sentences_in_text:
-                            s = s.strip()
-                            if len(s) > 10:  # Only consider meaningful sentences
-                                # Simple similarity: count matching words
-                                flagged_words = set(flagged_sentence.lower().split())
-                                text_words = set(s.lower().split())
-                                overlap = len(flagged_words & text_words) / max(len(flagged_words), 1)
-                                
+                    for s in sentences:
+                        s = s.strip()
+                        if len(s) > 10:
+                            flagged_words = set(flagged_sentence.lower().split())
+                            text_words = set(s.lower().split())
+                            if flagged_words and text_words:
+                                overlap = len(flagged_words & text_words) / len(flagged_words)
                                 if overlap > best_score and overlap > 0.5:
                                     best_score = overlap
                                     best_match = s
-                        
-                        if best_match:
-                            sentence_to_cite = best_match
-                            sentence_found = True
-                            print(f"      ✓ Found fuzzy match (similarity: {best_score:.1%})")
                     
-                    if not sentence_found:
-                        print(f"      ✗ Could not find sentence in text, skipping")
-                        continue
-                    
-                    # Find the best paper to cite
-                    source_title = plagiarism_info['source']
-                    matching_papers = []
-                    
-                    # First try exact source match
-                    if source_title:
-                        matching_papers = [p for p in retrieved_papers 
-                                         if source_title.lower() in p.get('title', '').lower() or
-                                            source_title.lower() in p.get('abstract', '').lower()]
-                    
-                    # If exact match not found, find semantically similar papers
-                    if not matching_papers:
-                        print(f"      🔍 No exact source match, finding relevant papers...")
-                        relevant = self.find_relevant_citations(sentence_to_cite, retrieved_papers)
-                        matching_papers = [r['paper'] if isinstance(r, dict) and 'paper' in r else r for r in relevant]
-                    
-                    if matching_papers:
-                        paper = matching_papers[0]
-                        print(f"      📖 Found paper: {paper.get('title', 'Unknown')[:50]}...")
-                        
-                        # Format citation
-                        paper_id = paper.get('id', paper.get('title', ''))
-                        
-                        if paper_id not in citation_map:
-                            citation_number = len(all_references) + 1
-                            formatted_citation = self.format_citation(paper, citation_style, citation_number)
-                            
-                            citation_map[paper_id] = {
-                                "citation_number": citation_number,
-                                "formatted_citation": formatted_citation,
-                                "cited_in": [section_name],
-                                "citation_count": 1,
-                                "plagiarism_priority": True
-                            }
-                            all_references.append(formatted_citation)
-                        else:
-                            citation_number = citation_map[paper_id]["citation_number"]
-                            if section_name not in citation_map[paper_id]["cited_in"]:
-                                citation_map[paper_id]["cited_in"].append(section_name)
-                            citation_map[paper_id]["citation_count"] += 1
-                            formatted_citation = citation_map[paper_id]["formatted_citation"]
-                        
-                        # Insert citation into text
-                        in_text = formatted_citation["in_text"]
-                        if sentence_to_cite in cited_text:
-                            position = cited_text.find(sentence_to_cite)
-                            if position != -1:
-                                end_pos = position + len(sentence_to_cite)
-                                # Add citation before the period if it exists
-                                if end_pos < len(cited_text) and cited_text[end_pos] in '.!?':
-                                    cited_text = cited_text[:end_pos] + f" {in_text}" + cited_text[end_pos:]
-                                else:
-                                    cited_text = cited_text[:end_pos] + f" {in_text}" + cited_text[end_pos:]
-                                
-                                citation_count += 1
-                                flagged_sentences_cited += 1
-                                print(f"      ✅ Cited flagged sentence (similarity: {plagiarism_info['similarity']:.1%})")
-                        else:
-                            print(f"      ✗ Could not insert citation into text")
-                    else:
-                        print(f"      ✗ No papers found to cite")
-            else:
-                print(f"    ℹ️ No plagiarism data for {section_name} - using fallback citation method")
-            
-            # PRIORITY 2: Citation for other academic claims
-            additional_citations = self.extract_citation_needs(section_text)
-            if additional_citations:
-                print(f"    📚 Found {len(additional_citations)} additional citation points")
+                    sentence_to_cite = best_match if best_match else None
                 
-                for sentence, position in additional_citations[:5]:  # Limit to 5 per section
-                    # Skip if this sentence was already flagged for plagiarism
-                    if section_plagiarism and any(
-                        sent.lower() in sentence.lower() for sent in section_plagiarism.keys()
-                    ):
-                        continue
+                if not sentence_to_cite:
+                    continue
+                
+                # Find best paper to cite
+                source_title = plag_info.get('source', '')
+                relevant = self.find_relevant_citations(sentence_to_cite, retrieved_papers)
+                
+                if relevant:
+                    paper = relevant[0]["paper"]
+                    paper_id = paper.get('id') or paper.get('title', f'paper_{len(all_references)}')
                     
-                    # Find relevant papers
-                    relevant = self.find_relevant_citations(sentence, retrieved_papers)
-                    
-                    if relevant:
-                        paper = relevant[0]['paper']
-                        paper_id = paper.get('id', paper.get('title', ''))
+                    if paper_id not in citation_map:
+                        citation_number = len(all_references) + 1
+                        formatted = self.format_citation(paper, citation_style, citation_number)
                         
-                        if paper_id not in citation_map:
-                            citation_number = len(all_references) + 1
-                            formatted = self.format_citation(paper, citation_style, citation_number)
-                            
-                            citation_map[paper_id] = {
-                                "citation_number": citation_number,
-                                "formatted_citation": formatted,
-                                "cited_in": [section_name],
-                                "citation_count": 1,
-                                "plagiarism_priority": False
-                            }
-                            all_references.append(formatted)
+                        citation_map[paper_id] = {
+                            "number": citation_number,
+                            "formatted": formatted,
+                            "sections": [section_name],
+                            "plagiarism_flagged": True
+                        }
+                        all_references.append(formatted)
+                    else:
+                        citation_number = citation_map[paper_id]["number"]
+                        formatted = citation_map[paper_id]["formatted"]
+                        if section_name not in citation_map[paper_id]["sections"]:
+                            citation_map[paper_id]["sections"].append(section_name)
+                    
+                    # Insert citation [#]
+                    in_text_citation = f"[{citation_number}]"
+                    if sentence_to_cite in cited_text:
+                        pos = cited_text.find(sentence_to_cite)
+                        end_pos = pos + len(sentence_to_cite)
+                        if end_pos < len(cited_text) and cited_text[end_pos] in '.!?':
+                            cited_text = cited_text[:end_pos] + f" {in_text_citation}" + cited_text[end_pos:]
                         else:
-                            citation_number = citation_map[paper_id]["citation_number"]
-                            formatted = citation_map[paper_id]["formatted_citation"]
+                            cited_text = cited_text[:end_pos] + f" {in_text_citation}" + cited_text[end_pos:]
                         
-                        in_text = formatted["in_text"]
-                        if sentence in cited_text:
-                            position = cited_text.find(sentence)
-                            end_pos = position + len(sentence)
-                            if end_pos < len(cited_text) and cited_text[end_pos] in '.!?':
-                                cited_text = cited_text[:end_pos] + f" {in_text}" + cited_text[end_pos:]
-                            else:
-                                cited_text = cited_text[:end_pos] + f" {in_text}" + cited_text[end_pos:]
-                            
-                            citation_count += 1
+                        citation_count += 1
+                        flagged_sentences_cited += 1
+            
+            # PRIORITY 2: Cite other academic claims
+            additional = self.extract_citation_needs(section_text)
+            for sentence, _ in additional[:3]:
+                # Skip already flagged
+                if any(fs in sentence for fs in section_plagiarism.keys()):
+                    continue
+                
+                relevant = self.find_relevant_citations(sentence, retrieved_papers)
+                if relevant:
+                    paper = relevant[0]["paper"]
+                    paper_id = paper.get('id') or paper.get('title', f'paper_{len(all_references)}')
+                    
+                    if paper_id not in citation_map:
+                        citation_number = len(all_references) + 1
+                        formatted = self.format_citation(paper, citation_style, citation_number)
+                        
+                        citation_map[paper_id] = {
+                            "number": citation_number,
+                            "formatted": formatted,
+                            "sections": [section_name],
+                            "plagiarism_flagged": False
+                        }
+                        all_references.append(formatted)
+                    else:
+                        citation_number = citation_map[paper_id]["number"]
+                        formatted = citation_map[paper_id]["formatted"]
+                    
+                    in_text_citation = f"[{citation_number}]"
+                    if sentence in cited_text:
+                        pos = cited_text.find(sentence)
+                        end_pos = pos + len(sentence)
+                        if end_pos < len(cited_text) and cited_text[end_pos] in '.!?':
+                            cited_text = cited_text[:end_pos] + f" {in_text_citation}" + cited_text[end_pos:]
+                        else:
+                            cited_text = cited_text[:end_pos] + f" {in_text_citation}" + cited_text[end_pos:]
+                        
+                        citation_count += 1
             
             cited_sections[section_name] = cited_text
-            print(f"    ➕ Added {citation_count} citations to {section_name}")
+            print(f"     ✅ Added {citation_count} citations")
         
-        # Format references section
-        references_section = self._format_references_section(all_references, citation_style)
-        cited_sections["references"] = references_section
+        # Format references
+        references_text = self._format_references_section(all_references, citation_style)
+        cited_sections["references"] = references_text
         
-        print(f"\n{'='*60}")
-        print(f"✅ CITATION SUMMARY")
-        print(f"{'='*60}")
-        print(f"📌 Flagged sentences cited: {flagged_sentences_cited}")
-        print(f"📚 Total citations added: {len(all_references)}")
-        print(f"📄 Unique papers: {len(set(ref['paper_info']['title'] for ref in all_references))}")
+        print(f"\n{'='*70}")
+        print(f"✅ CITATION RESULTS")
+        print(f"{'='*70}")
+        print(f"Plagiarism-flagged citations: {flagged_sentences_cited}")
+        print(f"Total citations added: {len(all_references)}")
+        print(f"Unique papers: {len(set(ref['paper_info']['title'] for ref in all_references))}")
+        print(f"{'='*70}\n")
         
-        # Show which papers had plagiarism priority
-        plagiarism_priority_papers = [
-            (k, v) for k, v in citation_map.items() 
-            if v.get('plagiarism_priority', False)
-        ]
-        if plagiarism_priority_papers:
-            print(f"⚠️  Papers cited for plagiarism: {len(plagiarism_priority_papers)}")
+        # Build the full draft with all sections
+        full_draft = self._build_full_draft(cited_sections)
         
         return {
             "cited_draft": cited_sections,
             "citations_added": len(all_references),
             "plagiarism_citations": flagged_sentences_cited,
             "references": all_references,
-            "citation_map": citation_map
+            "citation_map": citation_map,
+            "full_draft": full_draft
         }
     
     def _format_references_section(self, references: List[Dict], citation_style: str) -> str:
         """Format references section"""
-        if citation_style == "ieee":
-            # IEEE: Numbered list
-            references_text = "## References\n\n"
-            for i, ref in enumerate(references, 1):
-                references_text += f"[{i}] {ref['reference']}\n\n"
-        elif citation_style == "apa":
-            # APA: Alphabetical by author
-            references_text = "## References\n\n"
-            # Sort by author last name
-            sorted_refs = sorted(references, key=lambda x: x['paper_info']['authors'].split(',')[0])
-            for ref in sorted_refs:
-                references_text += f"{ref['reference']}\n\n"
-        else:
-            # MLA or other
-            references_text = "## References\n\n"
-            for ref in references:
-                references_text += f"{ref['reference']}\n\n"
+        if not references:
+            return "## References\n\nNo references.\n"
+        
+        references_text = "## References\n\n"
+        
+        # Use IEEE numbering by default
+        for i, ref in enumerate(references, 1):
+            references_text += f"[{i}] {ref['reference']}\n\n"
         
         return references_text
     
+    def display_cited_draft(self, citation_result: Dict) -> str:
+        """
+        Display the complete cited draft with all sections and references.
+        """
+        output = "\n" + "="*80 + "\n"
+        output += "📄 CITED DRAFT\n"
+        output += "="*80 + "\n\n"
+        
+        cited_draft = citation_result["cited_draft"]
+        
+        # Display each section
+        for section_name, section_text in cited_draft.items():
+            if section_name.lower() == "references":
+                continue  # Handle references separately
+            
+            output += f"## {section_name.upper()}\n"
+            output += "-" * 80 + "\n"
+            output += section_text + "\n\n"
+        
+        # Display references at the end
+        if "references" in cited_draft:
+            output += cited_draft["references"]
+        
+        output += "\n" + "="*80 + "\n"
+        return output
+    
     def create_citation_report(self, citation_data: Dict) -> str:
         """Create a report of citations added"""
-        cited_draft = citation_data["cited_draft"]
-        references = citation_data["references"]
-        citation_map = citation_data.get("citation_map", {})
-        
-        report = "=" * 80 + "\n"
-        report += "                    CITATION ANALYSIS REPORT\n"
+        report = "\n" + "=" * 80 + "\n"
+        report += "CITATION ANALYSIS REPORT\n"
         report += "=" * 80 + "\n\n"
         
-        report += "📊 CITATION STATISTICS\n"
-        report += "-" * 40 + "\n"
         report += f"Total citations added: {citation_data['citations_added']}\n"
-        report += f"Unique papers cited: {len(set(ref['paper_info']['title'] for ref in references))}\n\n"
+        report += f"Total papers cited: {len(set(ref['paper_info']['title'] for ref in citation_data['references']))}\n\n"
         
-        report += "📚 PAPERS CITED\n"
+        report += "Papers Cited:\n"
         report += "-" * 40 + "\n"
+        for i, ref in enumerate(citation_data['references'], 1):
+            info = ref['paper_info']
+            report += f"[{i}] {info['title']}\n"
+            report += f"    Authors: {info['authors']}\n"
+            report += f"    Year: {info['year']}\n"
+            report += f"    Source: {info['source']}\n\n"
         
-        for i, ref in enumerate(references, 1):
-            paper_info = ref['paper_info']
-            report += f"{i}. {paper_info['title']}\n"
-            report += f"   Authors: {paper_info['authors']}\n"
-            report += f"   Year: {paper_info['year']}\n"
-            report += f"   Source: {paper_info['source']}\n"
-            report += f"   Citation: {ref['in_text']}\n\n"
-        
-        report += "📄 CITATION PLACEMENT\n"
-        report += "-" * 40 + "\n"
-        
-        for section_name, section_text in cited_draft.items():
-            if section_name != "references":
-                # Count citations in this section
-                citation_count = sum(1 for ref in references 
-                                   if ref['paper_info']['title'] in citation_map and 
-                                   section_name in citation_map[ref['paper_info']['title']].get('cited_in', []))
-                
-                if citation_count > 0:
-                    report += f"• {section_name}: {citation_count} citations\n"
-        
-        report += "\n" + "=" * 80 + "\n"
-        
+        report += "=" * 80 + "\n"
         return report
 
 
 # Test function
 if __name__ == "__main__":
     print("🧪 Testing Citation Agent")
-    print("=" * 60)
+    print("=" * 80)
     
     agent = CitationAgent()
     
-    # Test with sample data
     test_draft = {
         "abstract": "Deep learning has shown promising results in stock market prediction. Various approaches have been proposed in recent literature.",
         "introduction": "Stock market prediction is a challenging task due to market volatility. Previous research has demonstrated the effectiveness of LSTM networks for time series forecasting. However, traditional methods often fail to capture complex patterns.",
-        "related_work": "Early work on stock prediction used statistical methods. More recent studies have focused on deep learning approaches. A survey by Smith et al. provides comprehensive coverage of existing methods."
+        "methods": "The study used deep neural networks for prediction."
     }
     
     test_papers = [
@@ -706,17 +668,10 @@ if __name__ == "__main__":
         }
     ]
     
-    result = agent.add_citations_to_draft(test_draft, test_papers, citation_style="apa")
+    result = agent.add_citations_to_draft(test_draft, test_papers, citation_style="ieee")
     
-    print("\n📝 Original Abstract:")
-    print(test_draft["abstract"])
+    # Display the cited draft
+    print(agent.display_cited_draft(result))
     
-    print("\n📝 Cited Abstract:")
-    print(result["cited_draft"]["abstract"])
-    
-    print("\n📚 References:")
-    print(result["cited_draft"]["references"])
-    
-    print("\n📊 Report:")
-    report = agent.create_citation_report(result)
-    print(report)
+    # Display the report
+    print(agent.create_citation_report(result))
