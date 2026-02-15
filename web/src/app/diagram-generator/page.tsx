@@ -42,8 +42,8 @@ export default function DiagramGenerator() {
       } else {
         setError(result.error || "Failed to generate diagram.");
       }
-    } catch (err: any) {
-      setError(err.message || "An error occurred.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred.");
     } finally {
       setLoading(false);
     }

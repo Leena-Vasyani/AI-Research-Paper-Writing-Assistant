@@ -14,6 +14,7 @@ import CitationManager, { Citation } from "@/components/CitationManager";
 import { Document, Packer, Paragraph } from "docx";
 import wordList from "word-list-json";
 import { Plugin } from "prosemirror-state";
+import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import "katex/dist/katex.min.css";
 import "./smart-drafter.css";
@@ -31,8 +32,6 @@ export default function SmartDrafterPage() {
   >([]);
   const [showTableDialog, setShowTableDialog] = useState(false);
   const [showEquationEditor, setShowEquationEditor] = useState(false);
-  const [showGrammarPanel, setShowGrammarPanel] = useState(true);
-
   const wordSet = useMemo(() => new Set(wordList), []);
   const wordIndex = useMemo(() => buildWordIndex(wordList), []);
 
@@ -694,11 +693,11 @@ const suggestWords = (word: string, index: Map<string, string[]>) => {
 };
 
 const buildSpellDecorations = (
-  doc: any,
+  doc: ProseMirrorNode,
   wordSet: Set<string>,
 ): DecorationSet => {
   const decorations: Decoration[] = [];
-  doc.descendants((node: any, pos: number) => {
+  doc.descendants((node: ProseMirrorNode, pos: number) => {
     if (!node.isText) return;
     const text = node.text || "";
     const regex = /[a-zA-Z']+/g;

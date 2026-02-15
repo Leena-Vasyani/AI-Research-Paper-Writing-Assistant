@@ -11,6 +11,7 @@ const navItems = [
   { href: "/diagram-generator", label: "Text to Diagram" },
   { href: "/code-to-pseudocode", label: "Code to Pseudocode" },
   { href: "/workflow", label: "Workflow" },
+  { href: "/agent-hub", label: "Agent Hub" },
   { href: "/about", label: "About" },
 ];
 

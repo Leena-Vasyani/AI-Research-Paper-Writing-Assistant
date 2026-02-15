@@ -52,7 +52,7 @@ export default function CitationManager({
 
             {citations.length === 0 ? (
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-center text-xs text-zinc-500">
-                    No citations yet. Click "Add Citation" to get started.
+                    No citations yet. Click &quot;Add Citation&quot; to get started.
                 </div>
             ) : (
                 <div className="space-y-2">

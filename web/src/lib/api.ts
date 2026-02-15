@@ -1,6 +1,7 @@
 import type {
   ComprehensiveSummary,
   Draft,
+  ExtractTextResult,
   Paper,
   PlagiarismReport,
   PseudocodeResult,
@@ -37,6 +38,27 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string }>("/api/health"),
+  extractText: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(normalizePath(API_BASE, "/api/extract-text"), {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      try {
+        const parsed = JSON.parse(text) as { detail?: string };
+        throw new Error(parsed.detail || text || `Request failed: ${res.status}`);
+      } catch {
+        throw new Error(text || `Request failed: ${res.status}`);
+      }
+    }
+
+    return res.json() as Promise<ExtractTextResult>;
+  },
   query: (payload: { text: string; top_keywords: number }) =>
     request<QueryResult>("/api/query", {
       method: "POST",

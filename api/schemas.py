@@ -89,3 +89,11 @@ class FormatIEEERequest(BaseModel):
 class CompilePDFRequest(BaseModel):
     latex_code: str = Field(..., description="LaTeX code to compile to PDF")
 
+
+class ExtractTextResponse(BaseModel):
+    success: bool = True
+    text: str = ""
+    filename: str = ""
+    extension: str = ""
+    warnings: List[str] = Field(default_factory=list)
+

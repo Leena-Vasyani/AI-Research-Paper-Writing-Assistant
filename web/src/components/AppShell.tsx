@@ -9,6 +9,7 @@ const mobileNav = [
   { href: "/diagram-generator", label: "Diagram" },
   { href: "/code-to-pseudocode", label: "Pseudo" },
   { href: "/workflow", label: "Workflow" },
+  { href: "/agent-hub", label: "Hub" },
   { href: "/about", label: "About" },
 ];
 

@@ -156,6 +156,26 @@ type ToolButtonProps = {
 
 type DocumentMode = "ieee" | "thesis";
 
+type EditorMark = {
+  type?: string;
+};
+
+type EditorNode = {
+  type?: string;
+  text?: string;
+  attrs?: {
+    level?: number;
+    className?: string;
+    ieeeRole?: string;
+    src?: string;
+    alt?: string;
+    title?: string;
+    [key: string]: unknown;
+  };
+  marks?: EditorMark[];
+  content?: EditorNode[];
+};
+
 export default function UniversalResearchFormatterPage() {
   const [documentMode, setDocumentMode] = useState<DocumentMode>("ieee");
   const [settings, setSettings] = useState<PaperSettings>(
@@ -232,7 +252,7 @@ export default function UniversalResearchFormatterPage() {
     const doc = editor?.getJSON();
     let count = 0;
 
-    const visit = (node: any) => {
+    const visit = (node: EditorNode | null | undefined) => {
       if (!node) return;
 
       if (
@@ -637,13 +657,13 @@ export default function UniversalResearchFormatterPage() {
     const doc = editor.getJSON();
     const tocLines: string[] = ["TABLE OF CONTENTS", ""];
 
-    const walk = (node: any) => {
+    const walk = (node: EditorNode | null | undefined) => {
       if (!node) return;
       if (node.type === "heading") {
         const level = node.attrs?.level ?? 1;
         if (level === 1 || level === 2) {
           const text = (node.content ?? [])
-            .map((item: any) => item?.text ?? "")
+            .map((item: EditorNode) => item?.text ?? "")
             .join("")
             .trim();
           if (
@@ -1440,18 +1460,22 @@ export default function UniversalResearchFormatterPage() {
       .replace(/~/g, "\\textasciitilde{}")
       .replace(/\$/g, "\\$");
 
-  const renderTextNode = (node: any) => {
+  const renderTextNode = (node: EditorNode) => {
     const text = escapeLatex(node.text ?? "");
     const marks = node.marks ?? [];
-    const isBold = marks.some((mark: any) => mark.type === "bold");
-    const isItalic = marks.some((mark: any) => mark.type === "italic");
-    const isStrike = marks.some((mark: any) => mark.type === "strike");
-    const isCode = marks.some((mark: any) => mark.type === "code");
-    const isSubscript = marks.some((mark: any) => mark.type === "subscript");
-    const isSuperscript = marks.some(
-      (mark: any) => mark.type === "superscript",
+    const isBold = marks.some((mark: EditorMark) => mark.type === "bold");
+    const isItalic = marks.some((mark: EditorMark) => mark.type === "italic");
+    const isStrike = marks.some((mark: EditorMark) => mark.type === "strike");
+    const isCode = marks.some((mark: EditorMark) => mark.type === "code");
+    const isSubscript = marks.some(
+      (mark: EditorMark) => mark.type === "subscript",
     );
-    const isUnderline = marks.some((mark: any) => mark.type === "underline");
+    const isSuperscript = marks.some(
+      (mark: EditorMark) => mark.type === "superscript",
+    );
+    const isUnderline = marks.some(
+      (mark: EditorMark) => mark.type === "underline",
+    );
 
     let result = text;
     if (isCode) result = `\\texttt{${result}}`;
@@ -1465,13 +1489,15 @@ export default function UniversalResearchFormatterPage() {
     return result;
   };
 
-  const extractPlainTextFromNode = (node: any): string => {
+  const extractPlainTextFromNode = (
+    node: EditorNode | null | undefined,
+  ): string => {
     if (!node) return "";
     if (node.type === "text") return node.text ?? "";
     return (node.content ?? []).map(extractPlainTextFromNode).join(" ").trim();
   };
 
-  const renderNode = (node: any): string => {
+  const renderNode = (node: EditorNode | null | undefined): string => {
     if (!node) return "";
     if (node.type === "text") return renderTextNode(node);
     if (node.type === "hardBreak") return "\\\\";
@@ -1497,7 +1523,7 @@ export default function UniversalResearchFormatterPage() {
       }
 
       return (node.content ?? [])
-        .map((child: any) => renderNode(child))
+        .map((child: EditorNode) => renderNode(child))
         .filter(Boolean)
         .join("\n");
     }
@@ -1534,7 +1560,7 @@ export default function UniversalResearchFormatterPage() {
 
     if (node.type === "bulletList") {
       const items = (node.content ?? [])
-        .map((child: any) => renderNode(child))
+        .map((child: EditorNode) => renderNode(child))
         .filter(Boolean)
         .join("\n");
       return `\\begin{itemize}\n${items}\n\\end{itemize}`;
@@ -1542,7 +1568,7 @@ export default function UniversalResearchFormatterPage() {
 
     if (node.type === "orderedList") {
       const items = (node.content ?? [])
-        .map((child: any) => renderNode(child))
+        .map((child: EditorNode) => renderNode(child))
         .filter(Boolean)
         .join("\n");
       return `\\begin{enumerate}\n${items}\n\\end{enumerate}`;
@@ -1550,7 +1576,7 @@ export default function UniversalResearchFormatterPage() {
 
     if (node.type === "listItem") {
       const content = (node.content ?? [])
-        .map((child: any) => renderNode(child))
+        .map((child: EditorNode) => renderNode(child))
         .filter(Boolean)
         .join(" ")
         .trim();
@@ -1559,17 +1585,17 @@ export default function UniversalResearchFormatterPage() {
 
     if (node.type === "table") {
       const rows = (node.content ?? []).filter(
-        (row: any) => row.type === "tableRow",
+        (row: EditorNode) => row.type === "tableRow",
       );
       if (!rows.length) return "";
 
-      const parsedRows = rows.map((row: any) =>
+      const parsedRows = rows.map((row: EditorNode) =>
         (row.content ?? [])
           .filter(
-            (cell: any) =>
+            (cell: EditorNode) =>
               cell.type === "tableCell" || cell.type === "tableHeader",
           )
-          .map((cell: any) => {
+          .map((cell: EditorNode) => {
             const content = (cell.content ?? [])
               .map(renderNode)
               .join(" ")

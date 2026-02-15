@@ -42,3 +42,11 @@ export type PseudocodeResult = {
   algorithm_name?: string;
   error?: string;
 };
+
+export type ExtractTextResult = {
+  success: boolean;
+  text: string;
+  filename: string;
+  extension: string;
+  warnings: string[];
+};

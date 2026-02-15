@@ -1,9 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, Dict, List
 import os
 import json
 import re
+import importlib
+from io import BytesIO
+
+from PyPDF2 import PdfReader
 
 try:
     from groq import Groq
@@ -35,6 +39,7 @@ from api.schemas import (
     FormatCommandRequest,
     FormatIEEERequest,
     CompilePDFRequest,
+    ExtractTextResponse,
 )
 
 app = FastAPI(title="ResearchGen API", version="0.1.0")
@@ -124,6 +129,92 @@ def _format_with_groq(prompt: str) -> Dict[str, Any] | None:
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
     return {"status": "ok"}
+
+
+@app.post("/api/extract-text")
+async def extract_text(file: UploadFile = File(...)) -> ExtractTextResponse:
+    try:
+        filename = file.filename or "uploaded_file"
+        extension = os.path.splitext(filename)[1].lower()
+        content = await file.read()
+
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (max 15MB)")
+
+        warnings: List[str] = []
+        text = ""
+
+        if extension == ".txt":
+            text = content.decode("utf-8", errors="ignore")
+        elif extension == ".pdf":
+            reader = PdfReader(BytesIO(content))
+            parts: List[str] = []
+            for page in reader.pages:
+                try:
+                    parts.append(page.extract_text() or "")
+                except Exception:
+                    parts.append("")
+            text = "\n".join(parts).strip()
+        elif extension == ".docx":
+            try:
+                docx_module = importlib.import_module("docx")
+                document_cls = getattr(docx_module, "Document")
+            except Exception:
+                raise HTTPException(
+                    status_code=500,
+                    detail="DOCX parsing not available. Install python-docx.",
+                )
+            doc = document_cls(BytesIO(content))
+            chunks: List[str] = []
+
+            for paragraph in doc.paragraphs:
+                if paragraph.text and paragraph.text.strip():
+                    chunks.append(paragraph.text.strip())
+
+            for table in doc.tables:
+                for row in table.rows:
+                    row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_cells:
+                        chunks.append(" | ".join(row_cells))
+
+            for section in doc.sections:
+                for paragraph in section.header.paragraphs:
+                    if paragraph.text and paragraph.text.strip():
+                        chunks.append(paragraph.text.strip())
+                for paragraph in section.footer.paragraphs:
+                    if paragraph.text and paragraph.text.strip():
+                        chunks.append(paragraph.text.strip())
+
+            text = "\n".join(chunks).strip()
+        elif extension == ".doc":
+            warnings.append(
+                "Legacy .doc parsing is not supported yet. Please convert to .docx for best results."
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type. Allowed: .txt, .pdf, .docx, .doc",
+            )
+
+        if not text:
+            warnings.append(
+                "No extractable text detected. If this is a scanned document/image PDF, OCR is required."
+            )
+
+        return ExtractTextResponse(
+            success=True,
+            text=text,
+            filename=filename,
+            extension=extension,
+            warnings=warnings,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/query")

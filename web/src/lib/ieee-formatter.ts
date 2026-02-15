@@ -1022,7 +1022,7 @@ export function formatToIEEE(rawText: string): FormatResult {
       ? Number.parseInt(refNumberMatch[1], 10)
       : Number.NaN;
     const backlinks = Number.isFinite(refNumber)
-      ? citationBacklinks.get(refNumber) ?? []
+      ? (citationBacklinks.get(refNumber) ?? [])
       : [];
     const backlinkHtml = backlinks.length
       ? `<span class="reference-backlinks"> ${backlinks
