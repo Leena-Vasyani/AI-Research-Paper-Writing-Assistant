@@ -10,16 +10,17 @@ const team = [
 
 export default function AboutPage() {
   return (
-    <div className="space-y-8 px-2 md:px-4">
+    <div className="space-y-8 px-2 pb-2 md:px-4">
       <PageHeader
+        eyebrow="About"
         title="About ResearchGen"
-        subtitle="Why we built it and who maintains it."
+        subtitle="Why we built it, what values guide it, and who is driving the platform forward."
       />
 
       <section className="grid gap-6 lg:grid-cols-2">
         <SectionCard
           title="Our mission"
-          description="Accelerate research without losing rigor."
+          description="Accelerate research workflows without sacrificing academic rigor."
         >
           <p className="text-sm text-zinc-300">
             ResearchGen exists to reduce the cognitive load of literature
@@ -29,7 +30,7 @@ export default function AboutPage() {
         </SectionCard>
         <SectionCard
           title="Why it matters"
-          description="Students and researchers deserve better tools."
+          description="Researchers need clarity, traceability, and faster execution."
         >
           <p className="text-sm text-zinc-300">
             Paper writing should focus on insight, not repetitive formatting.
@@ -40,21 +41,25 @@ export default function AboutPage() {
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">The team</h2>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <h2 className="text-xl font-semibold tracking-tight">The team</h2>
+        <div className="rounded-[2rem] bg-zinc-900/35 p-3 ring-1 ring-zinc-800/70 backdrop-blur-xl">
           {team.map((member) => (
             <div
               key={member.name}
-              className="rounded-2xl bg-zinc-900 p-5 text-center shadow"
+              className="flex items-center gap-4 rounded-2xl px-3 py-3 transition hover:bg-zinc-800/40"
             >
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-indigo-500/30 text-lg font-semibold">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-sm font-semibold text-indigo-100 ring-1 ring-indigo-300/25">
                 {member.name
                   .split(" ")
                   .map((part) => part[0])
                   .join("")}
               </div>
-              <div className="mt-3 text-sm font-semibold">{member.name}</div>
-              <div className="text-xs text-zinc-400">{member.role}</div>
+              <div>
+                <div className="text-sm font-semibold tracking-tight text-zinc-100">
+                  {member.name}
+                </div>
+                <div className="text-xs text-zinc-400">{member.role}</div>
+              </div>
             </div>
           ))}
         </div>

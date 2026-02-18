@@ -8,15 +8,17 @@ export default function Badge({
   tone?: "neutral" | "success" | "warning" | "danger" | "info";
 }) {
   const toneClass = {
-    neutral: "bg-zinc-800 text-zinc-200",
-    success: "bg-emerald-500/20 text-emerald-300",
-    warning: "bg-amber-500/20 text-amber-300",
-    danger: "bg-rose-500/20 text-rose-300",
-    info: "bg-indigo-500/20 text-indigo-300",
+    neutral: "border-zinc-700/70 bg-zinc-800/50 text-zinc-200",
+    success: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200",
+    warning: "border-amber-400/40 bg-amber-500/15 text-amber-200",
+    danger: "border-rose-400/40 bg-rose-500/15 text-rose-200",
+    info: "border-indigo-400/40 bg-indigo-500/15 text-indigo-200",
   }[tone];
 
   return (
-    <span className={`rounded-full px-3 py-1 text-xs ${toneClass}`}>
+    <span
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium backdrop-blur-sm ${toneClass}`}
+    >
       {children}
     </span>
   );
