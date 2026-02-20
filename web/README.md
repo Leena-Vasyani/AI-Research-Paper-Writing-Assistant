@@ -18,6 +18,21 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Tools
+
+- Smart Drafter
+- Text to Diagram
+- Code to Pseudocode
+- Universal Research Formatter (Live A4 layout + LaTeX export)
+
+## Environment
+
+To enable the Groq Quick Fix bar in the formatter:
+
+```
+GROQ_API_KEY=your_key_here
+```
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

@@ -8,16 +8,17 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
+import TableInsertDialog from "@/components/TableInsertDialog";
+import EquationEditor from "@/components/EquationEditor";
+import CitationManager, { Citation } from "@/components/CitationManager";
+import type { CitationCandidate } from "@/lib/types";
 import { Document, Packer, Paragraph } from "docx";
 import wordList from "word-list-json";
 import { Plugin } from "prosemirror-state";
+import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { Decoration, DecorationSet } from "prosemirror-view";
-
-type Citation = {
-  id: string;
-  title: string;
-  note: string;
-};
+import "katex/dist/katex.min.css";
+import "./smart-drafter.css";
 
 const defaultCitations: Citation[] = [];
 
@@ -27,10 +28,17 @@ export default function SmartDrafterPage() {
   const [error, setError] = useState<string | null>(null);
   const [liveText, setLiveText] = useState<string>("");
   const [autocomplete, setAutocomplete] = useState<string[]>([]);
+  const [autocompleteProvider, setAutocompleteProvider] = useState("fallback");
   const [misspellings, setMisspellings] = useState<
     { word: string; suggestions: string[] }[]
   >([]);
-
+  const [showTableDialog, setShowTableDialog] = useState(false);
+  const [showEquationEditor, setShowEquationEditor] = useState(false);
+  const [citationStatus, setCitationStatus] = useState<string | null>(null);
+  const [suggestedCitations, setSuggestedCitations] = useState<
+    CitationCandidate[]
+  >([]);
+  const [isSuggestingCitation, setIsSuggestingCitation] = useState(false);
   const wordSet = useMemo(() => new Set(wordList), []);
   const wordIndex = useMemo(() => buildWordIndex(wordList), []);
 
@@ -66,9 +74,10 @@ export default function SmartDrafterPage() {
     editorProps: {
       attributes: {
         spellcheck: "true",
+        class: "smart-drafter-editor",
       },
     },
-    content: "<h1>Title</h1><p>Start drafting your paper...</p>",
+    content: "<h1>Title</h1><p>Start drafting your research paper...</p>",
   });
 
   const draftText = useMemo(() => editor?.getText() ?? "", [editor]);
@@ -78,7 +87,6 @@ export default function SmartDrafterPage() {
     const update = () => {
       const text = editor.getText() ?? "";
       setLiveText(text);
-      setAutocomplete(getAutocomplete(text));
     };
     update();
     editor.on("update", update);
@@ -86,6 +94,26 @@ export default function SmartDrafterPage() {
       editor.off("update", update);
     };
   }, [editor]);
+
+  useEffect(() => {
+    const text = liveText.trim();
+    const timer = setTimeout(async () => {
+      if (!text) {
+        setAutocomplete([]);
+        setAutocompleteProvider("fallback");
+        return;
+      }
+      try {
+        const result = await api.autocomplete({ text, max_suggestions: 3 });
+        setAutocomplete(result.suggestions || []);
+        setAutocompleteProvider(result.provider || "fallback");
+      } catch {
+        setAutocomplete(getAutocomplete(text));
+        setAutocompleteProvider("fallback");
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [liveText]);
 
   useEffect(() => {
     const words = Array.from(
@@ -108,7 +136,14 @@ export default function SmartDrafterPage() {
   const addCitation = () => {
     setCitations((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), title: "New citation", note: "" },
+      {
+        id: crypto.randomUUID(),
+        title: "",
+        authors: "",
+        year: "",
+        venue: "",
+        note: "",
+      },
     ]);
   };
 
@@ -118,7 +153,61 @@ export default function SmartDrafterPage() {
     );
   };
 
-  const refineSelection = async (mode: "expand" | "academic" | "refine") => {
+  const deleteCitation = (citationId: string) => {
+    setCitations((prev) => prev.filter((c) => c.id !== citationId));
+  };
+
+  const insertCitation = (citationId: string) => {
+    if (!editor) return;
+    const index = citations.findIndex((c) => c.id === citationId);
+    if (index === -1) return;
+    editor
+      .chain()
+      .focus()
+      .insertContent(`[${index + 1}]`)
+      .run();
+  };
+
+  const insertTable = (rows: number, cols: number, withHeader: boolean) => {
+    if (!editor) return;
+
+    // Build simple HTML table
+    let tableHTML = '<table class="ieee-table"><thead>';
+
+    if (withHeader) {
+      tableHTML += "<tr>";
+      for (let i = 0; i < cols; i++) {
+        tableHTML += `<th>Header ${i + 1}</th>`;
+      }
+      tableHTML += "</tr></thead><tbody>";
+      rows--;
+    } else {
+      tableHTML += "</thead><tbody>";
+    }
+
+    for (let i = 0; i < rows; i++) {
+      tableHTML += "<tr>";
+      for (let j = 0; j < cols; j++) {
+        tableHTML += `<td>Cell</td>`;
+      }
+      tableHTML += "</tr>";
+    }
+
+    tableHTML += "</tbody></table>";
+    editor.chain().focus().insertContent(tableHTML).run();
+  };
+
+  const insertEquation = (latex: string, isBlock: boolean) => {
+    if (!editor) return;
+    const content = isBlock
+      ? `<p><em class="equation-block">${latex}</em></p>`
+      : `<em class="equation-inline">${latex}</em>`;
+    editor.chain().focus().insertContent(content).run();
+  };
+
+  const refineSelection = async (
+    mode: "expand" | "academic" | "refine" | "anti_plagiarism",
+  ) => {
     if (!editor) return;
     const selectedText = editor.state.doc.textBetween(
       editor.state.selection.from,
@@ -130,7 +219,14 @@ export default function SmartDrafterPage() {
     setStatus(`Refining (${mode})...`);
     setError(null);
     try {
-      const result = await api.refineBlock({ text, mode });
+      const result = await api.refineBlock({
+        text,
+        mode,
+        source_texts:
+          mode === "anti_plagiarism"
+            ? citations.map((c) => [c.title, c.note].join(" ")).filter(Boolean)
+            : [],
+      });
       if (selectedText.trim()) {
         editor.commands.insertContent(result.refined_text);
       } else {
@@ -138,12 +234,106 @@ export default function SmartDrafterPage() {
           result.refined_text.replace(/\n/g, "<br />"),
         );
       }
-      setStatus(`Refined with ${result.provider}`);
+      const overlapText =
+        typeof result.overlap_score === "number"
+          ? ` • overlap ${Math.round(result.overlap_score * 100)}%`
+          : "";
+      const warningText = result.warnings?.[0]
+        ? ` • ${result.warnings[0]}`
+        : "";
+      setStatus(`Refined with ${result.provider}${overlapText}${warningText}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Refine failed");
     } finally {
       setTimeout(() => setStatus(null), 1500);
     }
+  };
+
+  const detectClaimFromEditor = () => {
+    if (!editor) return "";
+    const selectedText = editor.state.doc.textBetween(
+      editor.state.selection.from,
+      editor.state.selection.to,
+      " ",
+    );
+    const fullText = editor.getText() ?? "";
+    const cursorPos = editor.state.selection.from;
+    const left = fullText.lastIndexOf(".", Math.max(0, cursorPos - 2));
+    const rightCandidate = fullText.indexOf(".", cursorPos);
+    const right = rightCandidate === -1 ? fullText.length : rightCandidate;
+    const sentenceAtCursor = fullText.slice(left + 1, right + 1).trim();
+    return selectedText.trim() || sentenceAtCursor;
+  };
+
+  const fetchCitationSuggestions = async (claim: string) => {
+    if (!claim) {
+      setError("Write or select a claim sentence before suggesting citation.");
+      return;
+    }
+
+    setError(null);
+    setCitationStatus("Searching citation sources...");
+    setIsSuggestingCitation(true);
+    setSuggestedCitations([]);
+
+    try {
+      const result = await api.suggestCitation({
+        claim_text: claim,
+        citation_style: "ieee",
+        max_candidates: 3,
+        auto_retrieve: true,
+        retrieve_max_results: 8,
+      });
+
+      if (!result.candidates?.length) {
+        setCitationStatus("No citation candidate found for selection.");
+        return;
+      }
+
+      setSuggestedCitations(result.candidates);
+      const noteText = result.notes?.length ? ` • ${result.notes[0]}` : "";
+      setCitationStatus(
+        `Found ${result.candidates.length} citation candidate(s) (confidence ${Math.round((result.confidence ?? 0) * 100)}%)${noteText}`,
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Citation suggestion failed");
+      setCitationStatus(null);
+    } finally {
+      setIsSuggestingCitation(false);
+    }
+  };
+
+  const applySuggestedCitation = (candidate: CitationCandidate) => {
+    if (!editor) return;
+    const citationId = crypto.randomUUID();
+    let citationIndex = citations.length + 1;
+
+    setCitations((prev) => {
+      citationIndex = prev.length + 1;
+      return [
+        ...prev,
+        {
+          id: citationId,
+          title: candidate.title || "",
+          authors: candidate.authors || "",
+          year: candidate.year || "",
+          venue: candidate.source || "",
+          note: [candidate.reference, candidate.doi_or_url]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ];
+    });
+
+    editor.chain().focus().insertContent(` [${citationIndex}]`).run();
+    setCitationStatus(
+      `Citation inserted from ${candidate.source || "retrieved source"}.`,
+    );
+  };
+
+  const suggestCitationFromSelection = async () => {
+    const claim = detectClaimFromEditor();
+    await fetchCitationSuggestions(claim);
   };
 
   const exportJson = () => {
@@ -276,9 +466,24 @@ export default function SmartDrafterPage() {
         >
           Quote
         </button>
+        <button
+          onClick={() => setShowTableDialog(true)}
+          className="rounded-lg bg-emerald-500 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-400"
+        >
+          📊 Insert Table
+        </button>
+        <button
+          onClick={() => setShowEquationEditor(true)}
+          className="rounded-lg bg-purple-500 px-4 py-2 text-xs font-medium text-white hover:bg-purple-400"
+        >
+          ∑ Insert Equation
+        </button>
       </div>
 
       {status && <div className="text-xs text-emerald-300">{status}</div>}
+      {citationStatus && (
+        <div className="text-xs text-cyan-300">{citationStatus}</div>
+      )}
       {error && <div className="text-xs text-rose-400">{error}</div>}
 
       <SectionCard
@@ -313,6 +518,18 @@ export default function SmartDrafterPage() {
             className="rounded-lg border border-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
           >
             Refine
+          </button>
+          <button
+            onClick={() => refineSelection("anti_plagiarism")}
+            className="rounded-lg border border-amber-700 px-3 py-1 text-xs text-amber-200 hover:bg-amber-900/30"
+          >
+            Anti-plagiarism Academic
+          </button>
+          <button
+            onClick={suggestCitationFromSelection}
+            className="rounded-lg border border-cyan-700 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-900/30"
+          >
+            Suggest Citation
           </button>
         </div>
       </SectionCard>
@@ -422,6 +639,9 @@ export default function SmartDrafterPage() {
         title="Autocomplete"
         description="Quick academic completions."
       >
+        <div className="mb-2 text-[11px] text-zinc-500">
+          Provider: {autocompleteProvider}
+        </div>
         <div className="flex flex-wrap gap-2">
           {autocomplete.length ? (
             autocomplete.map((item) => (
@@ -441,43 +661,21 @@ export default function SmartDrafterPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Citations" description="Independent citation chips.">
-        <div className="flex items-center justify-between">
-          <div className="text-xs uppercase text-zinc-500">Citation chips</div>
-          <button
-            onClick={addCitation}
-            className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Add citation
-          </button>
-        </div>
-        <div className="mt-3 space-y-2">
-          {citations.map((citation) => (
-            <div
-              key={citation.id}
-              className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2"
-            >
-              <input
-                value={citation.title}
-                onChange={(e) =>
-                  updateCitation(citation.id, { title: e.target.value })
-                }
-                className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs"
-              />
-              <textarea
-                value={citation.note}
-                onChange={(e) =>
-                  updateCitation(citation.id, { note: e.target.value })
-                }
-                placeholder="Hover/preview note or abstract"
-                className="mt-2 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs"
-              />
-            </div>
-          ))}
-          {!citations.length && (
-            <div className="text-xs text-zinc-500">No citations yet.</div>
-          )}
-        </div>
+      <SectionCard title="Citations" description="IEEE-formatted citations.">
+        <CitationManager
+          citations={citations}
+          onAdd={addCitation}
+          onUpdate={updateCitation}
+          onDelete={deleteCitation}
+          onInsert={insertCitation}
+          onSuggestClaim={(claim) => {
+            void fetchCitationSuggestions(claim);
+          }}
+          onApplySuggestion={applySuggestedCitation}
+          suggestions={suggestedCitations}
+          isSuggesting={isSuggestingCitation}
+          suggestionStatus={citationStatus}
+        />
       </SectionCard>
 
       <SectionCard
@@ -498,6 +696,18 @@ export default function SmartDrafterPage() {
           </div>
         </div>
       </SectionCard>
+
+      {/* Dialog Components */}
+      <TableInsertDialog
+        isOpen={showTableDialog}
+        onClose={() => setShowTableDialog(false)}
+        onInsert={insertTable}
+      />
+      <EquationEditor
+        isOpen={showEquationEditor}
+        onClose={() => setShowEquationEditor(false)}
+        onInsert={insertEquation}
+      />
     </div>
   );
 }
@@ -641,11 +851,11 @@ const suggestWords = (word: string, index: Map<string, string[]>) => {
 };
 
 const buildSpellDecorations = (
-  doc: any,
+  doc: ProseMirrorNode,
   wordSet: Set<string>,
 ): DecorationSet => {
   const decorations: Decoration[] = [];
-  doc.descendants((node: any, pos: number) => {
+  doc.descendants((node: ProseMirrorNode, pos: number) => {
     if (!node.isText) return;
     const text = node.text || "";
     const regex = /[a-zA-Z']+/g;

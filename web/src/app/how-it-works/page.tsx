@@ -63,6 +63,17 @@ const tools = [
     ],
   },
   {
+    title: "Universal Research Formatter",
+    description:
+      "A live A4 preview editor that formats papers to IEEE-style layout with AI layout adjustments.",
+    features: [
+      "A4 page simulation with column flow",
+      "CSS-variable layout controls (margins, columns, font size)",
+      "Groq-powered quick fixes for layout commands",
+      "Export-ready LaTeX (.tex) pipeline",
+    ],
+  },
+  {
     title: "Text to Diagram",
     description:
       "Generate professional technical diagrams from plain text descriptions using AI-powered Mermaid.js code generation.",
@@ -90,8 +101,9 @@ const tools = [
 
 export default function HowItWorksPage() {
   return (
-    <div className="space-y-8 px-2 md:px-4">
+    <div className="space-y-8 px-2 pb-2 md:px-4">
       <PageHeader
+        eyebrow="Workflow"
         title="How ResearchGen works"
         subtitle="A structured, agent-by-agent pipeline that keeps your research process transparent."
       />
@@ -129,16 +141,20 @@ export default function HowItWorksPage() {
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Meet the agents</h2>
-        <div className="grid gap-4 md:grid-cols-2">
+        <h2 className="text-xl font-semibold tracking-tight">
+          Meet the agents
+        </h2>
+        <div className="rounded-[2rem] bg-zinc-900/35 p-3 ring-1 ring-zinc-800/70 backdrop-blur-xl">
           {agents.map((agent) => (
             <div
               key={agent.title}
-              className="rounded-2xl bg-zinc-900 p-5 shadow"
+              className="grid gap-2 rounded-2xl px-3 py-3 transition hover:bg-zinc-800/40 md:grid-cols-[220px_1fr] md:items-center"
             >
-              <div className="text-sm font-semibold">{agent.title}</div>
+              <div className="text-sm font-semibold tracking-tight text-indigo-100">
+                {agent.title}
+              </div>
               <p className="mt-2 text-sm text-zinc-400">{agent.purpose}</p>
-              <div className="mt-3 text-xs text-zinc-500">
+              <div className="text-xs text-zinc-500 md:col-start-2">
                 Output: {agent.output}
               </div>
             </div>
@@ -147,15 +163,17 @@ export default function HowItWorksPage() {
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Tools</h2>
-        <div className="grid gap-4">
+        <h2 className="text-xl font-semibold tracking-tight">Tools</h2>
+        <div className="space-y-3">
           {tools.map((tool) => (
             <div
               key={tool.title}
-              className="rounded-2xl bg-zinc-900 p-5 shadow"
+              className="rounded-[2rem] bg-zinc-900/35 p-5 ring-1 ring-zinc-800/70 backdrop-blur-xl"
             >
               <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">{tool.title}</div>
+                <div className="text-sm font-semibold tracking-tight text-zinc-100">
+                  {tool.title}
+                </div>
                 {tool.title === "Text to Diagram" && (
                   <Badge tone="success">New</Badge>
                 )}

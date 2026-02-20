@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EASS: Distributed Consensus for Autonomous Swarms</title>
+    
+    <!-- MathJax for LaTeX rendering -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Times+New+Roman&family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #1a365d;
+            --accent-color: #2c5282;
+            --text-color: #1a202c;
+            --light-bg: #f7fafc;
+            --border-color: #e2e8f0;
+            --code-bg: #edf2f7;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: var(--text-color);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .paper-container {
+            max-width: 8.5in;
+            margin: 0 auto;
+            background: white;
+            padding: 0.75in 0.875in;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border-radius: 4px;
+        }
+
+        /* Title Styling */
+        .paper-title {
+            font-size: 24pt;
+            font-weight: bold;
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 12pt;
+            line-height: 1.2;
+        }
+
+        /* Authors */
+        .authors {
+            text-align: center;
+            font-size: 11pt;
+            margin-bottom: 6pt;
+        }
+
+        .authors strong {
+            font-weight: bold;
+        }
+
+        .affiliation {
+            text-align: center;
+            font-style: italic;
+            font-size: 10pt;
+            color: #4a5568;
+            margin-bottom: 20pt;
+        }
+
+        /* Abstract */
+        .abstract {
+            background: var(--light-bg);
+            padding: 15px 20px;
+            border-left: 4px solid var(--accent-color);
+            margin-bottom: 20pt;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .abstract-title {
+            font-weight: bold;
+            font-size: 10pt;
+        }
+
+        .abstract p {
+            text-align: justify;
+            margin-top: 6pt;
+            font-size: 9pt;
+        }
+
+        .index-terms {
+            margin-top: 10pt;
+            font-size: 9pt;
+        }
+
+        .index-terms strong {
+            font-style: italic;
+        }
+
+        /* Section Headings - Level 1 */
+        h2 {
+            font-size: 10pt;
+            font-weight: bold;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 20pt 0 10pt 0;
+            color: var(--primary-color);
+            font-variant: small-caps;
+        }
+
+        /* Sub-section Headings - Level 2 */
+        h3 {
+            font-size: 10pt;
+            font-style: italic;
+            font-weight: normal;
+            margin: 14pt 0 6pt 0;
+            color: var(--accent-color);
+        }
+
+        /* Paragraphs */
+        p {
+            text-align: justify;
+            text-indent: 0.25in;
+            margin-bottom: 6pt;
+            font-size: 10pt;
+        }
+
+        p:first-of-type {
+            text-indent: 0;
+        }
+
+        /* Tables */
+        .table-container {
+            margin: 15pt 0;
+            overflow-x: auto;
+        }
+
+        .table-caption {
+            font-size: 9pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 6pt;
+            text-transform: uppercase;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9pt;
+            margin: 0 auto;
+        }
+
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 6px 10px;
+            text-align: center;
+        }
+
+        th {
+            background: var(--light-bg);
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        tr:nth-child(even) {
+            background: #fafafa;
+        }
+
+        .fail-cell {
+            color: #c53030;
+            font-weight: bold;
+        }
+
+        .highlight-row {
+            background: #ebf8ff !important;
+            font-weight: 500;
+        }
+
+        /* Equations */
+        .equation {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 12pt 0;
+            padding: 10px 0;
+        }
+
+        .equation-content {
+            flex: 1;
+            text-align: center;
+        }
+
+        .equation-number {
+            min-width: 40px;
+            text-align: right;
+            font-size: 10pt;
+        }
+
+        /* Algorithm Block */
+        .algorithm {
+            background: var(--light-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15pt 0;
+            font-family: 'Source Code Pro', monospace;
+            font-size: 9pt;
+        }
+
+        .algorithm-title {
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10pt;
+            font-size: 10pt;
+            color: var(--primary-color);
+        }
+
+        .algorithm pre {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        /* Lists */
+        ul, ol {
+            margin: 8pt 0 8pt 25pt;
+            font-size: 10pt;
+        }
+
+        li {
+            margin-bottom: 4pt;
+        }
+
+        /* References */
+        .references {
+            font-size: 9pt;
+        }
+
+        .references p {
+            text-indent: -0.25in;
+            padding-left: 0.25in;
+            margin-bottom: 4pt;
+        }
+
+        /* Appendix */
+        .appendix h2 {
+            margin-top: 30pt;
+        }
+
+        /* Code/Monospace */
+        code {
+            font-family: 'Source Code Pro', monospace;
+            background: var(--code-bg);
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 9pt;
+        }
+
+        /* Horizontal Rule */
+        hr {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 20pt 0;
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .paper-container {
+                box-shadow: none;
+                padding: 0;
+            }
+        }
+
+        /* Two-column layout for wider screens */
+        @media (min-width: 900px) {
+            .two-column {
+                column-count: 2;
+                column-gap: 0.25in;
+            }
+            .two-column h2 {
+                column-span: all;
+            }
+            .two-column .table-container {
+                column-span: all;
+            }
+            .two-column .algorithm {
+                column-span: all;
+            }
+        }
+
+        /* Tooltip for metadata */
+        .meta-badge {
+            display: inline-block;
+            background: var(--accent-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 8pt;
+            margin: 2px;
+        }
+
+        .manuscript-info {
+            text-align: center;
+            font-size: 8pt;
+            color: #718096;
+            margin-top: 30pt;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="paper-container">
+        
+        <!-- Title -->
+        <h1 class="paper-title">Distributed Consensus Mechanisms for Fault-Tolerant Autonomous Agent Swarms in High-Latency Environments</h1>
+        
+        <!-- Authors -->
+        <div class="authors">
+            <strong>J. R. Oppenheimer</strong>, <strong>A. Turing</strong>, <strong>K. Gödel</strong>, <em>et al.</em>
+        </div>
+        <div class="affiliation">
+            Department of Advanced Computing Systems, Institute for Theoretical Research<br>
+            {oppenheimer, turing, godel}@itr.edu
+        </div>
+
+        <!-- Abstract -->
+        <div class="abstract">
+            <span class="abstract-title">Abstract—</span>As autonomous agent swarms are increasingly deployed in critical infrastructure—ranging from subsea exploration to low-earth orbit satellite constellations—the necessity for robust, decentralized consensus mechanisms has become paramount. Traditional Byzantine Fault Tolerance (BFT) algorithms, while effective in static network topologies, fail to scale in dynamic, high-latency environments where node availability is intermittent. This paper proposes a novel hybrid consensus protocol, "Epoch-Adaptive Swarm Sync" (EASS), which integrates a probabilistic gossip protocol with a lightweight Proof-of-Authority (PoA) ledger. By decoupling state validation from transaction ordering, EASS reduces message complexity from O(N²) to O(N log N). The approach was validated using a simulated swarm of 1,000 drones operating under aggressive packet loss conditions (up to 45%). Results demonstrate a 99.9% consistency rate with a 60% reduction in energy consumption compared to Practical Byzantine Fault Tolerance (PBFT) benchmarks.
+            
+            <div class="index-terms">
+                <strong>Index Terms—</strong>Distributed consensus, Byzantine fault tolerance, swarm robotics, edge computing, gossip protocols, autonomous agents.
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="two-column">
+
+            <h2>I. Introduction</h2>
+
+            <h3>A. The Rise of Edge-Native Swarm Intelligence</h3>
+            <p>The advent of Edge AI has fundamentally shifted the computational paradigm from centralized cloud servers to distributed edge devices. In this emerging context, "swarms" refer to collections of independent autonomous agents—including unmanned aerial vehicles (UAVs), autonomous underwater vehicles (AUVs), and mobile sensor networks—that coordinate to achieve a global objective without reliance on a central commander [1].</p>
+            
+            <p>However, the absence of centralized control introduces the "Split-Brain" problem, a critical failure mode that plagues distributed systems. When network partitioning occurs—whether due to physical obstruction, electromagnetic interference, or geographic dispersion—subgroups of the swarm may form divergent representations of the global state, leading to catastrophic mission failures.</p>
+
+            <h3>B. The Latency Barrier in Extreme Environments</h3>
+            <p>In standard terrestrial networking environments, communication latency δ is effectively negligible, typically satisfying δ ≈ 10 ms. However, in extreme operational environments such as underwater acoustic networks (2–10 seconds) or interplanetary communication (4–24 minutes), this assumption catastrophically fails.</p>
+            
+            <p>Existing protocols such as Raft rely on strict leader heartbeats to maintain cluster coherence. If the heartbeat interval \(t_{hb}\) is less than the ambient latency δ (i.e., \(t_{hb} < \delta\)), the system enters an infinite leader-election loop—rendering the swarm effectively paralyzed [2].</p>
+
+            <h3>C. Contributions of This Work</h3>
+            <p>This paper presents the following technical contributions:</p>
+            <ol>
+                <li><strong>Temporal Decoupling Architecture:</strong> Permits agents to proceed with local task execution while asynchronously reconciling global state.</li>
+                <li><strong>Entropic Trust Score (ETS):</strong> A mathematical metric for dynamically weighting peer reliability based on historical patterns.</li>
+                <li><strong>Real-World Validation:</strong> Field trials conducted in the Mojave Desert using custom quadcopters.</li>
+            </ol>
+
+            <h2>II. Related Work</h2>
+
+            <h3>A. Byzantine Fault Tolerance and Its Scalability Ceiling</h3>
+            <p>The foundational work on BFT by Lamport, Shostak, and Pease [2] established that a distributed system can tolerate f Byzantine faults if \(N \geq 3f + 1\). However, PBFT's message complexity of O(N²) creates a severe scalability bottleneck—for N = 100, approximately 10,000 message exchanges are required per consensus round.</p>
+
+            <h3>B. Gossip Protocols: Scalability Without Finality</h3>
+            <p>Gossip protocols offer O(log N) propagation time with O(N log N) message complexity. However, they lack transaction finality. Recent work by Gupta et al. (2024) attempted to add finality gadgets [3], but approximately 5% of transactions entered an indefinite "Stalemate State."</p>
+
+            <h2>III. Methodology: The EASS Protocol</h2>
+
+            <h3>A. System Model and Assumptions</h3>
+            <p>The system comprises agents \(A = \{a_1, a_2, \ldots, a_n\}\) connected via a time-varying graph \(G_t = (A, E_t)\). Edges appear and disappear based on physical proximity and environmental interference.</p>
+
+            <h3>B. Epoch-Based State Synchronization</h3>
+            <p>Rather than propagating complete state replicas, agents broadcast a compact "State Digest"—the Merkle Root hash of the hierarchical state representation—reducing per-epoch bandwidth from O(|S|) to O(1).</p>
+
+            <h3>C. Quantifying State Drift</h3>
+            <p><strong>Definition 1 (State Drift):</strong> The state drift between agents \(a_i\) and \(a_j\) is defined as the Hamming distance between their Merkle Root digests:</p>
+            
+            <div class="equation">
+                <div class="equation-content">
+                    \[\Delta(i, j) = \| D(S_i) \oplus D(S_j) \|\]
+                </div>
+                <div class="equation-number">(1)</div>
+            </div>
+
+            <p>The probability of convergence over time t follows an exponential model:</p>
+            
+            <div class="equation">
+                <div class="equation-content">
+                    \[P_c(t) = 1 - e^{-\lambda t}\]
+                </div>
+                <div class="equation-number">(2)</div>
+            </div>
+
+            <h3>D. The Entropic Trust Score (ETS)</h3>
+            <p>The weighted consensus value V for any collective decision is computed as:</p>
+            
+            <div class="equation">
+                <div class="equation-content">
+                    \[V = \frac{\sum_{k=1}^{N} ETS_k \cdot x_k}{\sum_{k=1}^{N} ETS_k}\]
+                </div>
+                <div class="equation-number">(3)</div>
+            </div>
+
+            <h3>E. Sub-Partition Leader Election</h3>
+
+            <div class="algorithm">
+                <div class="algorithm-title">ALGORITHM 1: Sub-Partition Leader Election</div>
+<pre>
+Input:  L — Neighbor list, id_self — Node ID, TS — Trust Score
+Output: Leader ID
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 1:  BROADCAST (id_self, TS) to all n ∈ L
+ 2:  WAIT for window W_time
+ 3:  Candidates ← CollectResponses()
+ 4:  Max_TS ← 0; Leader ← null
+ 5:  FOR EACH c IN Candidates DO:
+ 6:      IF c.TS > Max_TS THEN:
+ 7:          Max_TS ← c.TS
+ 8:          Leader ← c.id
+ 9:      ELSE IF c.TS = Max_TS THEN:
+10:          Leader ← max(Leader, c.id)
+11:  IF Leader = id_self THEN:
+12:      State ← LEADER; InitiateBlockProposal()
+13:  ELSE:
+14:      State ← FOLLOWER
+15:  RETURN Leader
+</pre>
+            </div>
+
+            <h2>IV. System Implementation</h2>
+
+            <h3>A. Hardware Architecture</h3>
+            <div class="table-container">
+                <div class="table-caption">Hardware Components</div>
+                <table>
+                    <tr>
+                        <th>Component</th>
+                        <th>Specification</th>
+                        <th>Purpose</th>
+                    </tr>
+                    <tr>
+                        <td>Compute</td>
+                        <td>NVIDIA Jetson Orin Nano</td>
+                        <td>Edge AI, consensus engine</td>
+                    </tr>
+                    <tr>
+                        <td>Transceiver</td>
+                        <td>LoRaWAN 915 MHz</td>
+                        <td>Long-range comms</td>
+                    </tr>
+                    <tr>
+                        <td>Flight Controller</td>
+                        <td>Pixhawk 6C</td>
+                        <td>Vehicle dynamics</td>
+                    </tr>
+                    <tr>
+                        <td>Sensors</td>
+                        <td>LiDAR + Optical Flow</td>
+                        <td>GPS-denied navigation</td>
+                    </tr>
+                </table>
+            </div>
+
+            <h3>B. Software Stack</h3>
+            <p>The consensus engine was implemented in <strong>Rust</strong> (~8,500 lines) for memory safety. Neural networks for path planning use <strong>PyTorch → TensorRT</strong>. The <strong>ROS 2</strong> middleware [8] provides inter-process communication.</p>
+
+            <h2>V. Experimental Results</h2>
+
+            <h3>A. Simulation Environment</h3>
+            <p>Large-scale validation used Gazebo simulator with PX4 SITL. Network impairments were injected via Linux <code>tc</code> (Traffic Control) to simulate packet loss (0–60%) and latency jitter.</p>
+
+            <h3>B. Quantitative Performance Under Network Stress</h3>
+
+            <div class="table-container">
+                <div class="table-caption">TABLE I: Consensus Protocol Performance Under Network Stress</div>
+                <table>
+                    <tr>
+                        <th>Protocol</th>
+                        <th>Packet Loss</th>
+                        <th>Convergence (ms)</th>
+                        <th>Bandwidth (KB/s)</th>
+                        <th>CPU (%)</th>
+                    </tr>
+                    <tr>
+                        <td>Raft</td>
+                        <td>0%</td>
+                        <td>150</td>
+                        <td>45</td>
+                        <td>12</td>
+                    </tr>
+                    <tr>
+                        <td>Raft</td>
+                        <td>25%</td>
+                        <td class="fail-cell">FAIL</td>
+                        <td>N/A</td>
+                        <td>N/A</td>
+                    </tr>
+                    <tr>
+                        <td>PBFT</td>
+                        <td>0%</td>
+                        <td>800</td>
+                        <td>320</td>
+                        <td>65</td>
+                    </tr>
+                    <tr>
+                        <td>PBFT</td>
+                        <td>25%</td>
+                        <td>12,500</td>
+                        <td>1,200</td>
+                        <td>98</td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td><strong>EASS (Ours)</strong></td>
+                        <td>0%</td>
+                        <td>180</td>
+                        <td>15</td>
+                        <td>18</td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td><strong>EASS (Ours)</strong></td>
+                        <td>25%</td>
+                        <td>240</td>
+                        <td>18</td>
+                        <td>22</td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td><strong>EASS (Ours)</strong></td>
+                        <td>50%</td>
+                        <td>650</td>
+                        <td>25</td>
+                        <td>35</td>
+                    </tr>
+                </table>
+            </div>
+
+            <h3>C. Energy Efficiency Analysis</h3>
+            <div class="table-container">
+                <div class="table-caption">TABLE II: Energy Consumption Per Consensus Round</div>
+                <table>
+                    <tr>
+                        <th>Protocol</th>
+                        <th>Mean Power (W)</th>
+                        <th>Energy/Round (mJ)</th>
+                        <th>Efficiency</th>
+                    </tr>
+                    <tr>
+                        <td>PBFT</td>
+                        <td>8.2</td>
+                        <td>6,560</td>
+                        <td>1.00× (baseline)</td>
+                    </tr>
+                    <tr>
+                        <td>Raft*</td>
+                        <td>3.1</td>
+                        <td>465</td>
+                        <td>14.1×</td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td><strong>EASS</strong></td>
+                        <td>2.8</td>
+                        <td>504</td>
+                        <td><strong>13.0×</strong></td>
+                    </tr>
+                </table>
+            </div>
+
+            <h2>VI. Discussion</h2>
+
+            <h3>A. Scalability Boundaries</h3>
+            <p>While EASS performed well up to N=1,000 agents, degradation was observed at N=5,000 due to LoRaWAN spectrum saturation. Future work will investigate hierarchical clustering for O(√N) bandwidth scaling.</p>
+
+            <h3>B. Security Considerations</h3>
+            <p>The PoA mechanism assumes >51% of high-trust nodes remain uncompromised. Physical drone capture could enable short-term "ledger poisoning." Future revisions will integrate TEE (Trusted Execution Environment) attestation via ARM TrustZone.</p>
+
+            <h2>VII. Conclusion</h2>
+            <p>This paper presented EASS, a consensus protocol designed for high-churn, high-latency autonomous swarms. By abandoning strict consistency for eventual consistency with probabilistic finality, we achieved 99.9% state consistency with 60% energy reduction compared to PBFT. These findings enable more resilient search-and-rescue fleets, agricultural swarms, and space exploration systems.</p>
+
+            <h2>References</h2>
+            <div class="references">
+                <p>[1] V. V. Vapnik, <em>The Nature of Statistical Learning Theory</em>. New York, NY, USA: Springer, 1995.</p>
+                <p>[2] L. Lamport, R. Shostak, and M. Pease, "The Byzantine Generals Problem," <em>ACM Trans. Program. Lang. Syst.</em>, vol. 4, no. 3, pp. 382–401, 1982.</p>
+                <p>[3] S. Nakamoto, "Bitcoin: A Peer-to-Peer Electronic Cash System," 2008.</p>
+                <p>[4] Y. LeCun, Y. Bengio, and G. Hinton, "Deep learning," <em>Nature</em>, vol. 521, pp. 436–444, 2015.</p>
+                <p>[5] K. He et al., "Deep Residual Learning for Image Recognition," <em>CVPR</em>, 2016.</p>
+                <p>[6] A. Vaswani et al., "Attention is All You Need," <em>NeurIPS</em>, 2017.</p>
+                <p>[7] J. Redmon and A. Farhadi, "YOLOv3," arXiv:1804.02767, 2018.</p>
+                <p>[8] Open Source Robotics Foundation, "ROS 2 Documentation," 2023.</p>
+                <p>[9] NVIDIA Corporation, "Jetson Orin Technical Reference Manual," 2024.</p>
+                <p>[10] D. Ongaro and J. Ousterhout, "In Search of an Understandable Consensus Algorithm," <em>USENIX ATC</em>, 2014.</p>
+            </div>
+
+            <h2>Appendix A: Proof of Convergence</h2>
+            <p>The convergence behavior follows epidemic dynamics. Let \(S_t\) denote nodes with correct state. The rate of adoption:</p>
+            
+            <div class="equation">
+                <div class="equation-content">
+                    \[\frac{dS}{dt} = \beta S(N - S)\]
+                </div>
+                <div class="equation-number">(A.1)</div>
+            </div>
+
+            <p>This logistic differential equation yields \(S(t) \to N\) as \(t \to \infty\), proving eventual convergence.</p>
+
+            <h2>Appendix B: Hyperparameter Tuning</h2>
+            <div class="table-container">
+                <table>
+                    <tr>
+                        <th>Hyperparameter</th>
+                        <th>Search Range</th>
+                        <th>Optimal Value</th>
+                    </tr>
+                    <tr>
+                        <td>Learning Rate</td>
+                        <td>[1×10⁻⁵, 1×10⁻²]</td>
+                        <td>3×10⁻⁴</td>
+                    </tr>
+                    <tr>
+                        <td>Batch Size</td>
+                        <td>{16, 32, 64, 128}</td>
+                        <td>32</td>
+                    </tr>
+                    <tr>
+                        <td>Dropout</td>
+                        <td>[0.1, 0.5]</td>
+                        <td>0.25</td>
+                    </tr>
+                    <tr>
+                        <td>Momentum</td>
+                        <td>[0.8, 0.99]</td>
+                        <td>0.9</td>
+                    </tr>
+                </table>
+            </div>
+
+        </div>
+
+        <div class="manuscript-info">
+            <em>Manuscript received October 15, 2025; revised December 20, 2025; accepted January 10, 2026.</em><br>
+            <em>International Journal of Advanced Robotic Systems & AI (IJARSAI), Vol 42, Issue 3, February 2026</em>
+        </div>
+
+    </div>
+</body>
+</html>

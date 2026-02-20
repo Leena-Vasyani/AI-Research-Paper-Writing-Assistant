@@ -56,11 +56,58 @@ export type CitationReport = {
   plagiarism_citations: number;
   references: Array<Record<string, unknown>>;
   citation_map: Record<string, unknown>;
-}
+};
 export type PseudocodeResult = {
   success: boolean;
   latex_code: string;
   provider?: string;
   algorithm_name?: string;
   error?: string;
+};
+
+export type ExtractTextResult = {
+  success: boolean;
+  text: string;
+  filename: string;
+  extension: string;
+  warnings: string[];
+};
+
+export type AutocompleteResult = {
+  suggestions: string[];
+  provider: string;
+};
+
+export type CitationCandidate = {
+  title: string;
+  authors: string;
+  year: string;
+  source: string;
+  doi_or_url: string;
+  relevance_score: number;
+  citation_type: string;
+  in_text: string;
+  reference: string;
+};
+
+export type CitationSuggestResult = {
+  success: boolean;
+  claim_text: string;
+  citation_style: string;
+  candidates: CitationCandidate[];
+  confidence: number;
+  source_count: number;
+  notes: string[];
+};
+
+export type CitationFormatResult = {
+  in_text: string;
+  reference: string;
+  paper_info: {
+    title: string;
+    authors: string;
+    year: string;
+    source: string;
+    url: string;
+  };
 };

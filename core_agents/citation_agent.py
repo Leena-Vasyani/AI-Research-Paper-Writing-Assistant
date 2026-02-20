@@ -156,9 +156,9 @@ class CitationAgent:
             abstract_score = min(abstract_matches / len(sentence_terms), 1.0)
             score += abstract_score * 0.3
         
-        # Check pre-computed relevance (if available from retrieval)
-        relevance = paper.get('relevance', 0.0)
-        score += relevance * 0.15
+        # Check relevance score from retrieval (if available)
+        relevance = paper.get('relevance_score', paper.get('relevance', 0.0))
+        score += relevance * 0.2
         
         # Add recency bonus
         published = paper.get('published', '')
@@ -415,30 +415,20 @@ class CitationAgent:
             
             # Extract plagiarism flags for this section
             section_plagiarism = {}
-            if plagiarism_results:
-                # Try multiple structures
-                section_data = None
+            if plagiarism_results and ('section_analysis' in plagiarism_results or 'section_analyses' in plagiarism_results):
+                analyses = plagiarism_results.get('section_analysis', plagiarism_results.get('section_analyses', {}))
+                section_data = analyses.get(section_name, {})
+                flagged = section_data.get('flagged_sentences', [])
                 
-                if isinstance(plagiarism_results, dict):
-                    if 'section_analysis' in plagiarism_results:
-                        section_data = plagiarism_results['section_analysis'].get(section_name, {})
-                    elif section_name in plagiarism_results:
-                        section_data = plagiarism_results[section_name]
-                    elif 'flagged_sentences' in plagiarism_results:
-                        section_data = plagiarism_results
-                    elif 'sections' in plagiarism_results:
-                        section_data = plagiarism_results['sections'].get(section_name, {})
-                
-                if section_data and isinstance(section_data, dict):
-                    flagged = section_data.get('flagged_sentences', [])
-                    for flag in flagged:
-                        if isinstance(flag, dict):
-                            sentence = flag.get('sentence', '')
-                            if sentence:
-                                section_plagiarism[sentence] = {
-                                    'source': flag.get('source', ''),
-                                    'similarity': flag.get('similarity', 0)
-                                }
+                # Create mapping of sentences to their source papers
+                for flag in flagged:
+                    sentence = flag.get('sentence', '')
+                    source = flag.get('source', flag.get('source_match', ''))
+                    similarity = flag.get('similarity', flag.get('similarity_score', 0))
+                    section_plagiarism[sentence] = {
+                        'source': source,
+                        'similarity': similarity
+                    }
             
             cited_text = section_text
             citation_count = 0

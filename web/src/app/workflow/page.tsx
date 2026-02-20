@@ -7,21 +7,15 @@ import SectionCard from "@/components/SectionCard";
 import StatCard from "@/components/StatCard";
 import { api } from "@/lib/api";
 import type {
+  CitationCandidate,
   ComprehensiveSummary,
-  CitationReport,
   Draft,
   Paper,
   PlagiarismReport,
   QueryResult,
 } from "@/lib/types";
 
-type StepId =
-  | "topic"
-  | "retrieval"
-  | "summary"
-  | "draft"
-  | "plagiarism"
-  | "citation";
+type StepId = "topic" | "retrieval" | "summary" | "draft" | "plagiarism";
 
 export default function WorkflowPage() {
   const [topic, setTopic] = useState("");
@@ -32,7 +26,6 @@ export default function WorkflowPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [summary, setSummary] = useState<ComprehensiveSummary | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [citation, setCitation] = useState<CitationReport | null>(null);
   const [plagiarism, setPlagiarism] = useState<PlagiarismReport | null>(null);
 
   const [loading, setLoading] = useState<string | null>(null);
@@ -42,6 +35,14 @@ export default function WorkflowPage() {
   );
   const [copied, setCopied] = useState<string | null>(null);
   const [openStep, setOpenStep] = useState<StepId>("topic");
+  const [citationClaim, setCitationClaim] = useState("");
+  const [citationStyle, setCitationStyle] = useState<"apa" | "ieee" | "mla">(
+    "ieee",
+  );
+  const [citationCandidates, setCitationCandidates] = useState<
+    CitationCandidate[]
+  >([]);
+  const [citationInfo, setCitationInfo] = useState<string | null>(null);
 
   const keywords = useMemo(() => queryResult?.keywords ?? [], [queryResult]);
 
@@ -126,7 +127,6 @@ export default function WorkflowPage() {
     retrieval: papers.length > 0,
     summary: !!summary,
     draft: !!draft,
-    citation: !!citation,
     plagiarism: !!plagiarism,
   } as const;
 
@@ -136,7 +136,6 @@ export default function WorkflowPage() {
     "summary",
     "draft",
     "plagiarism",
-    "citation",
   ];
   const currentStep =
     stepOrder.find((step) => !isComplete[step]) ?? "plagiarism";
@@ -157,7 +156,6 @@ export default function WorkflowPage() {
       setPapers([]);
       setSummary(null);
       setDraft(null);
-      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -179,7 +177,6 @@ export default function WorkflowPage() {
       setPapers(result);
       setSummary(null);
       setDraft(null);
-      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -195,7 +192,6 @@ export default function WorkflowPage() {
       const result = await api.summarize({ papers, keywords });
       setSummary(result);
       setDraft(null);
-      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -221,7 +217,6 @@ export default function WorkflowPage() {
         },
       });
       setDraft(result);
-      setCitation(null);
       setPlagiarism(null);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
@@ -248,18 +243,30 @@ export default function WorkflowPage() {
     }
   };
 
-  const handleCitation = async () => {
-    if (!draft) return;
+  const handleSuggestCitation = async () => {
+    const claim = citationClaim.trim();
+    if (!claim) {
+      setError("Enter a claim sentence to suggest citations.");
+      return;
+    }
     setError(null);
-    setLoading("Adding citations...");
+    setLoading("Suggesting citations...");
+    setCitationInfo(null);
     try {
-      const result = await api.citation({
-        draft,
-        papers,
-        style: "apa",
-        plagiarism_results: plagiarism || undefined,
+      const result = await api.suggestCitation({
+        claim_text: claim,
+        citation_style: citationStyle,
+        max_candidates: 3,
+        keywords,
+        provided_papers: papers,
+        auto_retrieve: papers.length === 0,
+        retrieve_max_results: 8,
       });
-      setCitation(result);
+      setCitationCandidates(result.candidates ?? []);
+      const noteText = result.notes?.length ? ` • ${result.notes[0]}` : "";
+      setCitationInfo(
+        `Found ${result.candidates?.length ?? 0} candidate(s) with confidence ${Math.round((result.confidence ?? 0) * 100)}%${noteText}`,
+      );
     } catch (e: unknown) {
       setError(getErrorMessage(e));
     } finally {
@@ -480,16 +487,17 @@ export default function WorkflowPage() {
                     </div>
                   </div>
                   <div className="mt-3 space-y-3 rounded-lg border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
-                    {summary.executive_summary && (
-                      <div>
-                        <div className="text-[11px] uppercase text-zinc-500">
-                          Executive Summary
+                    {typeof summary.executive_summary === "string" &&
+                      summary.executive_summary.trim() && (
+                        <div>
+                          <div className="text-[11px] uppercase text-zinc-500">
+                            Executive Summary
+                          </div>
+                          <p className="mt-1 text-zinc-200">
+                            {summary.executive_summary}
+                          </p>
                         </div>
-                        <p className="mt-1 text-zinc-200">
-                          {summary.executive_summary as string}
-                        </p>
-                      </div>
-                    )}
+                      )}
 
                     {summary.section_summaries && (
                       <div className="space-y-2">
@@ -660,111 +668,6 @@ export default function WorkflowPage() {
               )}
             </div>
           </StepShell>
-
-          <StepShell
-            step="citation"
-            title="6) Citation management"
-            description="Automatically add intelligent citations."
-          >
-            <div className="space-y-3">
-              <button
-                onClick={handleCitation}
-                disabled={!draft || !!loading}
-                className="w-full rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium hover:bg-violet-400 disabled:opacity-50"
-              >
-                Add Citations
-              </button>
-              {citation && (
-                <div className="rounded-xl bg-zinc-950 p-3 text-xs text-zinc-300">
-                  <div className="flex items-center justify-between">
-                    <span>Citations added: {citation.citations_added}</span>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() =>
-                          copyToClipboard(
-                            JSON.stringify(citation, null, 2),
-                            "citations",
-                          )
-                        }
-                        className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-                      >
-                        Copy JSON
-                      </button>
-                      <button
-                        onClick={() =>
-                          downloadJson(citation, "cited_draft.json")
-                        }
-                        className="rounded-lg border border-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-                      >
-                        Export JSON
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-3 rounded-lg border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
-                    <div>
-                      <div className="text-[11px] uppercase text-zinc-500">
-                        Citation Stats
-                      </div>
-                      <p className="mt-1 text-zinc-200">
-                        Total citations: {citation.citations_added}
-                        <br />
-                        Plagiarism-related: {citation.plagiarism_citations}
-                        <br />
-                        Unique papers cited: {citation.references.length}
-                      </p>
-                    </div>
-                    <div className="border-t border-zinc-800 pt-3">
-                      <div className="text-[11px] uppercase text-zinc-500">
-                        Cited Draft Sections
-                      </div>
-                      <div className="mt-2 space-y-3">
-                        {citation.cited_draft.abstract && (
-                          <div className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2">
-                            <div className="text-[11px] uppercase text-zinc-500">
-                              Abstract
-                            </div>
-                            <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-zinc-200">
-                              {citation.cited_draft.abstract}
-                            </p>
-                          </div>
-                        )}
-                        {citation.cited_draft.introduction && (
-                          <div className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2">
-                            <div className="text-[11px] uppercase text-zinc-500">
-                              Introduction
-                            </div>
-                            <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-zinc-200">
-                              {citation.cited_draft.introduction}
-                            </p>
-                          </div>
-                        )}
-                        {citation.cited_draft.related_work && (
-                          <div className="rounded-md border border-zinc-800/60 bg-zinc-900/50 p-2">
-                            <div className="text-[11px] uppercase text-zinc-500">
-                              Related Work
-                            </div>
-                            <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-zinc-200">
-                              {citation.cited_draft.related_work}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    {citation.cited_draft.references && (
-                      <div className="border-t border-zinc-800 pt-3">
-                        <div className="text-[11px] uppercase text-zinc-500">
-                          References Section
-                        </div>
-                        <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-zinc-200">
-                          {String(citation.cited_draft.references || "")}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </StepShell>
         </div>
       </SectionCard>
 
@@ -776,6 +679,68 @@ export default function WorkflowPage() {
           {loading && <div className="text-indigo-300">{loading}</div>}
           {error && <div className="text-rose-400">{error}</div>}
           {!loading && !error && <div className="text-zinc-500">Idle</div>}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Citation assistant"
+        description="Suggest citations for a claim using retrieved papers and RAG fallback."
+      >
+        <div className="space-y-3">
+          <textarea
+            value={citationClaim}
+            onChange={(e) => setCitationClaim(e.target.value)}
+            rows={3}
+            placeholder="Enter a claim sentence, e.g., Transformer models improve long-context reasoning under retrieval augmentation."
+            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+          />
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-zinc-400">Style</label>
+            <select
+              value={citationStyle}
+              onChange={(e) =>
+                setCitationStyle(e.target.value as "apa" | "ieee" | "mla")
+              }
+              className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs"
+            >
+              <option value="ieee">IEEE</option>
+              <option value="apa">APA</option>
+              <option value="mla">MLA</option>
+            </select>
+            <button
+              onClick={handleSuggestCitation}
+              disabled={!citationClaim.trim() || !!loading}
+              className="rounded-lg bg-cyan-500 px-3 py-1 text-xs font-medium hover:bg-cyan-400 disabled:opacity-50"
+            >
+              Suggest citation
+            </button>
+          </div>
+          {citationInfo && (
+            <div className="text-xs text-cyan-300">{citationInfo}</div>
+          )}
+          {!!citationCandidates.length && (
+            <div className="space-y-2">
+              {citationCandidates.map((candidate, idx) => (
+                <div
+                  key={`${candidate.title}-${idx}`}
+                  className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs"
+                >
+                  <div className="text-zinc-200">
+                    [{idx + 1}] {candidate.title || "Untitled"}
+                  </div>
+                  <div className="mt-1 text-zinc-400">
+                    {candidate.authors || "Unknown authors"} •{" "}
+                    {candidate.year || "n.d."} •{" "}
+                    {Math.round((candidate.relevance_score || 0) * 100)}%
+                  </div>
+                  <div className="mt-1 text-zinc-300">{candidate.in_text}</div>
+                  <div className="mt-1 text-zinc-500 break-all">
+                    {candidate.reference}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </SectionCard>
     </div>

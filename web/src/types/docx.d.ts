@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare module "docx" {
   export class Document {
-    constructor(opts?: any);
+    constructor(opts?: Record<string, unknown>);
   }
   export class Paragraph {
-    constructor(text?: string | any);
+    constructor(text?: string | Record<string, unknown>);
   }
   export const Packer: {
     toBlob(doc: Document): Promise<Blob>;

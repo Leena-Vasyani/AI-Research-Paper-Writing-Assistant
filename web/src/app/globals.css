@@ -25,7 +25,852 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+a,
+button {
+  transition: all 180ms ease;
+}
+
+::selection {
+  background: rgba(129, 140, 248, 0.35);
+  color: #f4f4f5;
+}
+
+.soft-float {
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.soft-float:hover {
+  transform: translateY(-3px);
+}
+
+.rg-nav-shell {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 50px rgba(0, 0, 0, 0.45);
+}
+
+.rg-glass-sheen {
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 38%,
+    transparent 62%
+  );
+  transform: translateX(-120%);
+  animation: rgGlassScan 8.5s ease-in-out infinite;
+}
+
+.rg-nav-dot {
+  box-shadow: 0 0 0 0 rgba(165, 180, 252, 0.6);
+  animation: rgDotPulse 2.8s ease-in-out infinite;
+}
+
+.rg-nav-pill {
+  transform: translateY(0);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.rg-nav-pill:hover {
+  transform: translateY(-2px);
+}
+
+.rg-nav-pill-active {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 10px 28px rgba(99, 102, 241, 0.24);
+}
+
+.rg-float-hover {
+  transform: translateY(0);
+}
+
+.rg-float-hover:hover {
+  transform: translateY(-1px) scale(1.01);
+}
+
+.rg-hero-glass {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.11),
+      rgba(255, 255, 255, 0.03)
+    ),
+    rgba(5, 6, 16, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 18px 38px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);
+  animation: rgRiseIn 720ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.rg-hero-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 22% 18%,
+    rgba(129, 140, 248, 0.24),
+    transparent 40%
+  );
+  pointer-events: none;
+}
+
+.rg-hero-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    118deg,
+    transparent 10%,
+    rgba(255, 255, 255, 0.12) 46%,
+    transparent 72%
+  );
+  transform: translateX(-130%);
+  animation: rgGlassScan 9.5s ease-in-out infinite 0.65s;
+  pointer-events: none;
+}
+
+@keyframes rgGlassScan {
+  0%,
+  60%,
+  100% {
+    transform: translateX(-120%);
+  }
+  30% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes rgDotPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(165, 180, 252, 0.46);
+    opacity: 0.85;
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(165, 180, 252, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes rgRiseIn {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.rg-marquee {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.rg-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 2.75rem;
+  animation: rgMarquee 26s linear infinite;
+}
+
+.rg-marquee-track span {
+  position: relative;
+  white-space: nowrap;
+}
+
+.rg-marquee-track span::after {
+  content: "•";
+  margin-left: 2.75rem;
+  color: rgba(161, 161, 170, 0.6);
+}
+
+@keyframes rgMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.rg-logo {
+  color: #e4e4e7;
+}
+
+.rg-logo svg {
+  overflow: visible;
+}
+
+.rg-logo-doc {
+  fill: rgba(39, 39, 42, 0.9);
+  stroke: rgba(129, 140, 248, 0.65);
+  stroke-width: 1.5;
+  transition:
+    fill 220ms ease,
+    stroke 220ms ease,
+    filter 220ms ease;
+}
+
+.rg-logo-line {
+  fill: none;
+  stroke: rgba(161, 161, 170, 0.9);
+  stroke-linecap: round;
+  stroke-width: 1.8;
+  transition: stroke 220ms ease;
+}
+
+.rg-logo-spark {
+  fill: none;
+  stroke: rgba(165, 180, 252, 0.95);
+  stroke-linecap: round;
+  stroke-width: 1.8;
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  opacity: 0;
+}
+
+.rg-logo-node {
+  fill: rgba(129, 140, 248, 0.9);
+  transition:
+    transform 220ms ease,
+    fill 220ms ease;
+  transform-origin: center;
+}
+
+.rg-logo:hover .rg-logo-doc,
+.rg-logo:focus-visible .rg-logo-doc,
+.rg-logo:active .rg-logo-doc {
+  fill: rgba(49, 46, 129, 0.35);
+  stroke: rgba(199, 210, 254, 0.95);
+  filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.35));
+}
+
+.rg-logo:hover .rg-logo-line,
+.rg-logo:focus-visible .rg-logo-line,
+.rg-logo:active .rg-logo-line {
+  stroke: rgba(224, 231, 255, 0.9);
+}
+
+.rg-logo:hover .rg-logo-spark,
+.rg-logo:focus-visible .rg-logo-spark,
+.rg-logo:active .rg-logo-spark {
+  opacity: 1;
+  animation: rgSpark 900ms ease forwards;
+}
+
+.rg-logo:hover .rg-logo-node-a,
+.rg-logo:focus-visible .rg-logo-node-a,
+.rg-logo:active .rg-logo-node-a {
+  animation: rgNodePulse 680ms ease 0ms;
+}
+
+.rg-logo:hover .rg-logo-node-b,
+.rg-logo:focus-visible .rg-logo-node-b,
+.rg-logo:active .rg-logo-node-b {
+  animation: rgNodePulse 680ms ease 90ms;
+}
+
+.rg-logo:hover .rg-logo-node-c,
+.rg-logo:focus-visible .rg-logo-node-c,
+.rg-logo:active .rg-logo-node-c {
+  animation: rgNodePulse 680ms ease 160ms;
+}
+
+@keyframes rgSpark {
+  0% {
+    stroke-dashoffset: 18;
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+}
+
+@keyframes rgNodePulse {
+  0% {
+    transform: scale(1);
+    fill: rgba(129, 140, 248, 0.9);
+  }
+  50% {
+    transform: scale(1.3);
+    fill: rgba(224, 231, 255, 1);
+  }
+  100% {
+    transform: scale(1);
+    fill: rgba(129, 140, 248, 0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rg-marquee-track {
+    animation: none;
+  }
+
+  .rg-glass-sheen,
+  .rg-nav-dot,
+  .rg-hero-glass,
+  .rg-hero-glass::after {
+    animation: none !important;
+  }
+
+  .rg-logo-spark,
+  .rg-logo-node {
+    animation: none !important;
+    transition: none;
+  }
+}
+
 .spell-underline {
   text-decoration: underline wavy #f87171;
   text-decoration-thickness: 1.5px;
+}
+
+/* IEEE Paper Editor Styles */
+
+/* A4 Paper Base */
+.a4-paper {
+  position: relative;
+  background: white;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Print styles for PDF export */
+@media print {
+  .a4-paper {
+    width: 210mm !important;
+    min-height: auto !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  .paper-editor-content {
+    column-count: 2 !important;
+    column-gap: 6mm !important;
+  }
+
+  .page-break-indicator {
+    display: none !important;
+  }
+}
+
+/* ProseMirror Editor Base */
+.paper-editor-content .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  height: 100%;
+}
+
+/* Force exactly 2 columns */
+.paper-editor-content {
+  columns: 2 !important;
+  column-gap: 6mm !important;
+}
+
+/* A4 Page styling */
+.a4-page {
+  background: white;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Paragraph styling */
+.paper-editor-content .ProseMirror p {
+  margin: 0 0 0.6em;
+  text-align: justify;
+  text-indent: 0.25in;
+  break-inside: avoid-column;
+  orphans: 2;
+  widows: 2;
+}
+
+.paper-editor-content .ProseMirror p:first-child {
+  text-indent: 0;
+}
+
+.paper-editor-content .ProseMirror h1 {
+  font-size: 14pt;
+  font-weight: bold;
+  text-align: center;
+  text-transform: uppercase;
+  margin: 1em 0 0.5em;
+  font-variant: small-caps;
+  column-span: all;
+}
+
+.paper-editor-content .ProseMirror h1:first-child {
+  font-size: 24pt;
+  margin-top: 0;
+  font-variant: normal;
+}
+
+.paper-editor-content .ProseMirror h2 {
+  font-size: 11pt;
+  font-style: italic;
+  font-weight: normal;
+  margin: 1em 0 0.4em;
+  text-align: left;
+}
+
+.paper-editor-content .ProseMirror h3 {
+  font-size: 10pt;
+  font-weight: bold;
+  margin: 0.8em 0 0.3em;
+}
+
+.paper-editor-content .ProseMirror ul,
+.paper-editor-content .ProseMirror ol {
+  margin: 0.5em 0 0.5em 1.5em;
+}
+
+.paper-editor-content .ProseMirror li {
+  margin-bottom: 0.25em;
+}
+
+.paper-editor-content .ProseMirror em {
+  font-style: italic;
+}
+
+.paper-editor-content .ProseMirror strong {
+  font-weight: bold;
+}
+
+.paper-editor-content .ProseMirror p.is-editor-empty:first-child::before {
+  color: #9ca3af;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* IEEE Table Styles */
+.paper-editor-content .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 9pt;
+}
+
+.paper-editor-content .ProseMirror th,
+.paper-editor-content .ProseMirror td {
+  border: 1px solid #374151;
+  padding: 4px 8px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.paper-editor-content .ProseMirror th {
+  background: #f3f4f6;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 8pt;
+}
+
+.paper-editor-content .ProseMirror tr:nth-child(even) {
+  background: #fafafa;
+}
+
+/* Math notation styling (for $ delimited content) */
+.paper-editor-content .ProseMirror code {
+  font-family: "Times New Roman", Times, serif;
+  font-style: italic;
+  background: transparent;
+  padding: 0;
+}
+
+/* Block quote for equations */
+.paper-editor-content .ProseMirror blockquote {
+  text-align: center;
+  font-style: italic;
+  margin: 1em 0;
+  padding: 0;
+  border: none;
+}
+
+/* Live IEEE Preview Styles */
+.ieee-preview-html h1 {
+  font-size: 10pt;
+  font-weight: 400;
+  text-align: center;
+  margin: 8pt 0 4pt;
+  text-transform: none;
+  break-after: avoid-column;
+}
+
+.ieee-preview-html h1.ieee-heading {
+  font-variant: small-caps;
+}
+
+.ieee-preview-html p.no-indent {
+  text-indent: 0;
+}
+
+.ieee-preview-html .table-caption {
+  text-align: center;
+  font-size: 8pt;
+  font-variant: small-caps;
+  font-weight: bold;
+  text-indent: 0;
+  margin: 8pt 0 4pt;
+}
+
+.ieee-preview-html h2 {
+  font-size: 10pt;
+  font-weight: 400;
+  font-style: italic;
+  text-transform: none;
+  text-align: left;
+  margin: 6pt 0 3pt;
+  break-after: avoid-column;
+}
+
+.ieee-preview-html h3 {
+  font-size: 10pt;
+  font-style: italic;
+  font-weight: normal;
+  margin: 0;
+}
+
+.ieee-preview-html p {
+  margin: 0 0 6pt;
+  text-indent: 14.4pt;
+}
+
+.ieee-preview-html .paper-title {
+  font-size: 24pt;
+  font-weight: 400;
+  text-align: center;
+  margin: 0 0 6pt;
+  text-indent: 0;
+  column-span: all;
+}
+
+.ieee-preview-html .paper-authors {
+  font-size: 11pt;
+  text-align: center;
+  margin: 18pt 0 4pt;
+  text-indent: 0;
+  column-span: all;
+}
+
+.ieee-preview-html .author-grid {
+  column-span: all;
+  display: grid;
+  gap: 8pt 16pt;
+  margin: 18pt 0 10pt;
+}
+
+.ieee-preview-html .author-grid-1 {
+  grid-template-columns: 1fr;
+}
+
+.ieee-preview-html .author-grid-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.ieee-preview-html .author-grid-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.ieee-preview-html .author-block {
+  text-align: center;
+}
+
+.ieee-preview-html .author-name {
+  margin: 0 0 2pt;
+  font-size: 11pt;
+  text-indent: 0;
+}
+
+.ieee-preview-html .author-line {
+  margin: 0;
+  font-size: 10pt;
+  text-indent: 0;
+}
+
+.ieee-preview-html .abstract-text {
+  font-size: 9pt;
+  line-height: 1.2;
+  margin: 0 0 10pt;
+  text-indent: 13.6pt;
+}
+
+.ieee-preview-html .index-terms {
+  font-size: 9pt;
+  line-height: 1.2;
+  margin: 0 0 6pt;
+  text-indent: 13.7pt;
+}
+
+.ieee-preview-html .index-terms strong {
+  font-style: italic;
+  font-weight: bold;
+}
+
+.ieee-preview-html .reference-item {
+  font-size: 8pt;
+  line-height: 1.125;
+  text-indent: -18pt;
+  padding-left: 18pt;
+  margin: 0 0 2.5pt;
+}
+
+.ieee-preview-html .reference-item .reference-label {
+  color: inherit;
+  font-weight: 400;
+}
+
+.ieee-preview-html .ieee-citation-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ieee-preview-html .reference-backlinks {
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.ieee-preview-html .reference-backlink {
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.75;
+  font-size: 7pt;
+}
+
+.ieee-preview-html .reference-backlink:hover {
+  opacity: 1;
+}
+
+.ieee-preview-html .reference-item:target {
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 2px;
+}
+
+.ieee-preview-html .ieee-copyright {
+  column-span: all;
+  font-size: 8pt;
+  text-indent: 0;
+  margin: 12pt 0 0;
+}
+
+.ieee-preview-html .table-wrapper {
+  break-inside: avoid-column;
+  page-break-inside: avoid;
+}
+
+.ieee-preview-html .figure-block {
+  break-inside: avoid-column;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin: 8pt 0;
+  text-align: center;
+  width: 100%;
+}
+
+.ieee-preview-html .figure-block img {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 140pt;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto 4pt;
+}
+
+.ieee-preview-html .figure-caption {
+  text-align: center;
+  font-size: 8pt;
+  font-variant: small-caps;
+  text-indent: 0;
+  margin: 0;
+}
+
+.ieee-preview-html table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 8pt;
+  margin: 12pt 0 6pt;
+}
+
+.ieee-preview-html th,
+.ieee-preview-html td {
+  border: 0.5px solid #666;
+  padding: 2px 4px;
+  text-align: left;
+  word-break: break-word;
+}
+
+.ieee-preview-html th {
+  background: #f0f0f0;
+  font-weight: bold;
+}
+
+.ieee-preview-html blockquote.equation {
+  margin: 12pt 0;
+  text-align: center;
+  font-style: italic;
+  border: none;
+  padding: 0;
+}
+
+.ieee-preview-html ul,
+.ieee-preview-html ol {
+  margin: 0 0 6pt;
+  padding-left: 1.2em;
+  font-size: 10pt;
+}
+
+.ieee-preview-html li {
+  margin: 0.1em 0;
+}
+
+.ieee-preview-html strong {
+  font-weight: bold;
+}
+
+.ieee-preview-html em {
+  font-style: italic;
+}
+
+.ieee-preview-html sub {
+  font-size: 0.7em;
+  vertical-align: sub;
+}
+
+.ieee-preview-html sup {
+  font-size: 0.7em;
+  vertical-align: super;
+}
+
+/* Editor Content Styles - ensure no italic */
+.editor-content .ProseMirror {
+  font-style: normal !important;
+  outline: none;
+}
+
+.editor-content .ProseMirror p {
+  font-style: normal;
+  margin: 0.5em 0;
+}
+
+.editor-content .ProseMirror h1,
+.editor-content .ProseMirror h2,
+.editor-content .ProseMirror h3,
+.editor-content .ProseMirror h4 {
+  font-style: normal;
+  font-weight: bold;
+  margin: 1em 0 0.5em;
+}
+
+.editor-content .ProseMirror h1 {
+  font-size: 1.5em;
+}
+
+.editor-content .ProseMirror h2 {
+  font-size: 1.25em;
+}
+
+.editor-content .ProseMirror h3 {
+  font-size: 1.1em;
+}
+
+.editor-content .ProseMirror em {
+  font-style: italic;
+}
+
+.editor-content .ProseMirror strong {
+  font-weight: bold;
+}
+
+.editor-content .ProseMirror ul,
+.editor-content .ProseMirror ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.editor-content .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.editor-content .ProseMirror .figure-block {
+  margin: 0.75em auto;
+  max-width: 100%;
+}
+
+.editor-content .ProseMirror .figure-block img {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+
+.editor-content .ProseMirror .figure-caption {
+  font-size: 0.85em;
+  color: #444;
+  text-align: center;
+  margin-top: 0.35em;
+}
+
+.editor-content .ProseMirror th,
+.editor-content .ProseMirror td {
+  border: 1px solid #ccc;
+  padding: 0.5em;
+}
+
+/* Thesis/Report front-matter blocks */
+.editor-content .ProseMirror .front-matter-page,
+.ieee-preview-html .front-matter-page {
+  column-span: all;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  text-align: center;
+  padding: 8pt 0;
+}
+
+.editor-content .ProseMirror .front-matter-page p,
+.ieee-preview-html .front-matter-page p {
+  text-indent: 0;
+  margin: 0 0 8pt;
+}
+
+.editor-content .ProseMirror .front-matter-cover p:first-child,
+.ieee-preview-html .front-matter-cover p:first-child {
+  margin-top: 64pt;
+  font-size: 18pt;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.editor-content .ProseMirror .front-matter-page-break,
+.ieee-preview-html .front-matter-page-break {
+  column-span: all;
+  break-after: page;
+  page-break-after: always;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-content .ProseMirror .front-matter-toc p,
+.editor-content .ProseMirror .front-matter-glossary p,
+.ieee-preview-html .front-matter-toc p,
+.ieee-preview-html .front-matter-glossary p {
+  text-align: left;
 }

@@ -42,8 +42,8 @@ export default function DiagramGenerator() {
       } else {
         setError(result.error || "Failed to generate diagram.");
       }
-    } catch (err: any) {
-      setError(err.message || "An error occurred.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred.");
     } finally {
       setLoading(false);
     }
@@ -53,7 +53,7 @@ export default function DiagramGenerator() {
     <div className="p-6 md:p-8">
       <PageHeader
         title="Text to Diagram"
-        description="Generate editable system architectures, flowcharts, and technical diagrams from natural language."
+        subtitle="Generate editable system architectures, flowcharts, and technical diagrams from natural language."
       />
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

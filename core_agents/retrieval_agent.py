@@ -2,6 +2,8 @@ import arxiv
 from typing import List, Dict
 import time
 from datetime import datetime
+import requests
+import os
 
 class PaperRetrievalAgent:
     """
@@ -13,6 +15,10 @@ class PaperRetrievalAgent:
         self.client = arxiv.Client()
         self.min_relevance_score = min_relevance_score
         self.min_year = min_year
+        self.http_timeout = 20
+        self.openalex_api_key = os.getenv("OPENALEX_API_KEY", "").strip()
+        self.openalex_email = os.getenv("OPENALEX_EMAIL", "").strip()
+        self.semantic_scholar_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     
     def build_search_query(self, keywords: List[str], max_keywords: int = 5) -> str:
         """
@@ -72,8 +78,179 @@ class PaperRetrievalAgent:
             return year >= self.min_year
         except:
             return False
+
+    def _extract_openalex_abstract(self, abstract_index: Dict | None) -> str:
+        if not abstract_index or not isinstance(abstract_index, dict):
+            return ""
+        positions: Dict[int, str] = {}
+        for token, idxs in abstract_index.items():
+            if not isinstance(idxs, list):
+                continue
+            for idx in idxs:
+                if isinstance(idx, int):
+                    positions[idx] = token
+        if not positions:
+            return ""
+        return " ".join(token for _, token in sorted(positions.items(), key=lambda x: x[0]))
+
+    def _retrieve_arxiv(self, keywords: List[str], max_results: int) -> List[Dict]:
+        search_query = self.build_search_query(keywords)
+        search = arxiv.Search(
+            query=search_query,
+            max_results=max_results * 5,
+            sort_by=arxiv.SortCriterion.Relevance,
+            sort_order=arxiv.SortOrder.Descending
+        )
+
+        papers = []
+        try:
+            for result in self.client.results(search):
+                paper = {
+                    "title": result.title,
+                    "authors": [author.name for author in result.authors],
+                    "authors_str": ", ".join([author.name for author in result.authors][:3]),
+                    "abstract": result.summary,
+                    "published": result.published.strftime("%Y-%m-%d"),
+                    "pdf_url": result.pdf_url,
+                    "entry_id": result.entry_id,
+                    "categories": result.categories,
+                    "primary_category": result.primary_category,
+                    "query_used": search_query,
+                    "retrieved_at": datetime.now().isoformat(),
+                    "source": "arxiv",
+                }
+                papers.append(paper)
+                if len(papers) >= max_results:
+                    break
+                time.sleep(0.2)
+        except Exception as e:
+            print(f"⚠️ arXiv retrieval failed: {e}")
+        return papers
+
+    def _retrieve_openalex(self, keywords: List[str], max_results: int) -> List[Dict]:
+        search_query = self.build_search_query(keywords)
+        url = "https://api.openalex.org/works"
+        params = {
+            "search": search_query,
+            "per-page": min(max_results * 4, 200),
+            "sort": "relevance_score:desc",
+        }
+        if self.openalex_api_key:
+            params["api_key"] = self.openalex_api_key
+        if self.openalex_email:
+            params["mailto"] = self.openalex_email
+
+        headers = {
+            "User-Agent": "ResearchGen/0.1 (mailto:{})".format(self.openalex_email or "support@example.com")
+        }
+        papers: List[Dict] = []
+
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=self.http_timeout)
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get("results", []):
+                title = item.get("title") or ""
+                if not title:
+                    continue
+
+                authors = []
+                for auth in item.get("authorships", [])[:6]:
+                    name = (auth.get("author") or {}).get("display_name")
+                    if name:
+                        authors.append(name)
+
+                publication_date = item.get("publication_date") or ""
+                doi = item.get("doi") or ""
+                if doi.startswith("https://doi.org/"):
+                    doi = doi.replace("https://doi.org/", "")
+
+                primary_location = item.get("primary_location") or {}
+                open_access = item.get("open_access") or {}
+                pdf_url = open_access.get("oa_url") or primary_location.get("pdf_url") or ""
+                landing_url = primary_location.get("landing_page_url") or item.get("id") or ""
+
+                paper = {
+                    "title": title,
+                    "authors": authors,
+                    "authors_str": ", ".join(authors[:3]) if authors else "Unknown Author",
+                    "abstract": self._extract_openalex_abstract(item.get("abstract_inverted_index")),
+                    "published": publication_date,
+                    "pdf_url": pdf_url,
+                    "entry_id": item.get("id", ""),
+                    "categories": [
+                        (item.get("primary_topic") or {}).get("display_name", "")
+                    ],
+                    "primary_category": (item.get("primary_topic") or {}).get("display_name", "openalex"),
+                    "query_used": search_query,
+                    "retrieved_at": datetime.now().isoformat(),
+                    "source": "openalex",
+                    "doi": doi,
+                    "url": landing_url,
+                }
+                papers.append(paper)
+                if len(papers) >= max_results:
+                    break
+        except Exception as e:
+            print(f"⚠️ OpenAlex retrieval failed: {e}")
+
+        return papers
+
+    def _retrieve_semantic_scholar(self, keywords: List[str], max_results: int) -> List[Dict]:
+        search_query = self.build_search_query(keywords)
+        url = "https://api.semanticscholar.org/graph/v1/paper/search"
+        params = {
+            "query": search_query,
+            "limit": min(max_results * 4, 100),
+            "fields": "title,abstract,authors,year,venue,url,externalIds,openAccessPdf,publicationDate",
+        }
+        headers = {}
+        if self.semantic_scholar_api_key:
+            headers["x-api-key"] = self.semantic_scholar_api_key
+        papers: List[Dict] = []
+
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=self.http_timeout)
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get("data", []):
+                title = item.get("title") or ""
+                if not title:
+                    continue
+
+                authors = [a.get("name", "") for a in item.get("authors", []) if a.get("name")]
+                year = item.get("year")
+                published = item.get("publicationDate") or (f"{year}-01-01" if year else "")
+
+                external_ids = item.get("externalIds") or {}
+                doi = external_ids.get("DOI", "")
+                open_access_pdf = item.get("openAccessPdf") or {}
+
+                paper = {
+                    "title": title,
+                    "authors": authors,
+                    "authors_str": ", ".join(authors[:3]) if authors else "Unknown Author",
+                    "abstract": item.get("abstract", "") or "",
+                    "published": published,
+                    "pdf_url": open_access_pdf.get("url", ""),
+                    "entry_id": item.get("paperId", ""),
+                    "categories": [item.get("venue", "")],
+                    "primary_category": item.get("venue", "semantic_scholar") or "semantic_scholar",
+                    "query_used": search_query,
+                    "retrieved_at": datetime.now().isoformat(),
+                    "source": "semantic_scholar",
+                    "doi": doi,
+                    "url": item.get("url", ""),
+                }
+                papers.append(paper)
+                if len(papers) >= max_results:
+                    break
+        except Exception as e:
+            print(f"⚠️ Semantic Scholar retrieval failed: {e}")
+
+        return papers
     
-    def retrieve_papers(self, keywords: List[str], max_results: int = 5) -> List[Dict]:
+    def retrieve_papers(self, keywords: List[str], max_results: int = 5, sources: List[str] | None = None) -> List[Dict]:
         """
         Retrieve papers from arXiv based on keywords
         Filters by relevance score (>70%) and publication date (2020-2025)
@@ -87,72 +264,45 @@ class PaperRetrievalAgent:
         """
         
         print(f"🔍 DEBUG Retrieval - Input keywords: {keywords}")
-        
-        # Build search query
-        search_query = self.build_search_query(keywords)
-        print(f"🔍 DEBUG Retrieval - Built search query: {search_query}")
-        
-        # Create search - retrieve more initially to account for filtering
-        search = arxiv.Search(
-            query=search_query,
-            max_results=max_results * 5,  # Retrieve 5x to account for filtering
-            sort_by=arxiv.SortCriterion.Relevance,
-            sort_order=arxiv.SortOrder.Descending
-        )
-        
-        papers = []
-        processed_count = 0
-        
-        try:
-            for result in self.client.results(search):
-                processed_count += 1
-                print(f"🔍 DEBUG Retrieval - Processing result {processed_count}: {result.title[:60]}...")
-                
-                # Create paper dict first
-                paper = {
-                    "title": result.title,
-                    "authors": [author.name for author in result.authors],
-                    "authors_str": ", ".join([author.name for author in result.authors][:3]),
-                    "abstract": result.summary,
-                    "published": result.published.strftime("%Y-%m-%d"),
-                    "pdf_url": result.pdf_url,
-                    "entry_id": result.entry_id,
-                    "categories": result.categories,
-                    "primary_category": result.primary_category,
-                    "query_used": search_query,
-                    "retrieved_at": datetime.now().isoformat()
-                }
-                
-                # Calculate relevance score
-                relevance_score = self.calculate_relevance_score(paper, keywords)
-                paper['relevance_score'] = relevance_score
-                print(f"   Relevance: {relevance_score:.1%}, Date: {paper['published']}")
-                
-                # Filter by date first (more lenient)
-                if not self.is_recent_paper(paper['published']):
-                    print(f"   ❌ Filtered: Date too old")
+        active_sources = [s.lower() for s in (sources or ["arxiv", "openalex", "semantic_scholar"])]
+
+        provider_fetchers = {
+            "arxiv": self._retrieve_arxiv,
+            "openalex": self._retrieve_openalex,
+            "semantic_scholar": self._retrieve_semantic_scholar,
+        }
+
+        papers: List[Dict] = []
+        seen_titles = set()
+
+        for source in active_sources:
+            fetcher = provider_fetchers.get(source)
+            if not fetcher:
+                continue
+
+            source_candidates = fetcher(keywords, max_results=max_results)
+
+            for paper in source_candidates:
+                title_key = paper.get("title", "").strip().lower()
+                if not title_key or title_key in seen_titles:
                     continue
-                
-                # For relevance, be more lenient on initial retrieval
-                # Accept papers with relevance > 50% since we're being strict about keywords
+
+                relevance_score = self.calculate_relevance_score(paper, keywords)
+                paper["relevance_score"] = relevance_score
+
+                if paper.get("published") and not self.is_recent_paper(paper["published"]):
+                    continue
+
                 if relevance_score >= 0.5:
                     papers.append(paper)
-                    print(f"   ✅ Added to results")
-                    
-                    # Stop when we have enough papers
-                    if len(papers) >= max_results:
-                        break
-                else:
-                    print(f"   ❌ Filtered: Relevance too low")
-                
-                # Small delay to respect API limits
-                time.sleep(0.5)
-        
-        except Exception as e:
-            print(f"⚠️ Error retrieving papers: {e}")
-            import traceback
-            traceback.print_exc()
-        
+                    seen_titles.add(title_key)
+
+                if len(papers) >= max_results:
+                    break
+
+            if len(papers) >= max_results:
+                break
+
         print(f"🔍 DEBUG Retrieval - Total papers found: {len(papers)}")
         return papers
     
