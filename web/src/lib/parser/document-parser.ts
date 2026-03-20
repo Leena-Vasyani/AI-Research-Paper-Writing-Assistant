@@ -18,7 +18,7 @@
  *   - Copyright footer line
  */
 
-type HeadingKind =
+export type HeadingKind =
   | "none"
   | "abstract"
   | "references"
@@ -27,27 +27,27 @@ type HeadingKind =
   | "section"
   | "subsection";
 
-type HeadingDetection = {
+export type HeadingDetection = {
   kind: HeadingKind;
   title: string;
 };
 
-type InlineFormatResult = {
+export type InlineFormatResult = {
   html: string;
   equationCount: number;
 };
 
-type CitationContext = {
+export type CitationContext = {
   getNextCitationId: () => string;
   registerCitation: (referenceNumber: number, citationId: string) => void;
 };
 
-type TableFormatResult = {
+export type TableFormatResult = {
   html: string;
   equationCount: number;
 };
 
-type AuthorBlock = {
+export type AuthorBlock = {
   name: string;
   details: string[];
 };
@@ -171,7 +171,7 @@ const MAIN_SECTION_KEYWORDS: Array<{ regex: RegExp; canonical: string }> = [
 
 /* ───────── helpers ───────── */
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -180,7 +180,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function collapseWhitespace(value: string): string {
+export function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
@@ -205,7 +205,7 @@ function toTitleCase(value: string): string {
     .join(" ");
 }
 
-function sanitizeTemplateRestrictedText(value: string): string {
+export function sanitizeTemplateRestrictedText(value: string): string {
   return collapseWhitespace(
     value
       .replace(/\$\$[\s\S]+?\$\$/g, " ")
@@ -226,7 +226,7 @@ function sanitizeTemplateRestrictedText(value: string): string {
 
 /* ───────── Roman numerals ───────── */
 
-function toRoman(num: number): string {
+export function toRoman(num: number): string {
   const map: [number, string][] = [
     [1000, "M"],
     [900, "CM"],
@@ -253,7 +253,7 @@ function toRoman(num: number): string {
   return result;
 }
 
-function toLetterLabel(num: number): string {
+export function toLetterLabel(num: number): string {
   // 1 → A, 2 → B, ...
   return String.fromCharCode(64 + num);
 }
@@ -416,7 +416,7 @@ function convertMath(mathText: string): string {
 
 /* ───────── inline content ───────── */
 
-function processInlineContent(
+export function processInlineContent(
   text: string,
   citationContext?: CitationContext,
 ): InlineFormatResult {
@@ -874,333 +874,138 @@ function extractFrontMatter(lines: string[]): {
   return { title, authorBlocks, startIndex: cursor };
 }
 
-function renderAuthorBlocks(authorBlocks: AuthorBlock[]): string {
-  if (!authorBlocks.length) return "";
-
-  const capped = authorBlocks.slice(0, 6);
-  const columnCount = Math.min(3, Math.max(1, capped.length));
-  const blocksHtml = capped
-    .map((block) => {
-      const detailHtml = block.details
-        .map((line) => `<p class="author-line">${escapeHtml(line)}</p>`)
-        .join("");
-      return (
-        `<div class="author-block">` +
-        `<p class="author-name">${escapeHtml(block.name)}</p>` +
-        detailHtml +
-        `</div>`
-      );
-    })
-    .join("");
-
-  return (
-    `<div class="author-grid author-grid-${columnCount}">` +
-    blocksHtml +
-    `</div>`
-  );
+export interface ASTNode {
+  type: 'abstract' | 'keywords' | 'algorithm' | 'table' | 'reference' | 'heading' | 'paragraph';
+  text?: string;
+  level?: number;
+  kind?: HeadingKind;
+  title?: string;
+  lines?: string[];
+  caption?: string | null;
+  rows?: string[][];
+  label?: string | null;
 }
 
-/**
- * ACM-style stacked author rendering: each author vertically with their affiliation.
- */
-function renderAuthorBlocksStacked(authorBlocks: AuthorBlock[]): string {
-  if (!authorBlocks.length) return "";
-  const blocksHtml = authorBlocks
-    .map((block) => {
-      const detailHtml = block.details
-        .map((line) => `<p class="author-line">${escapeHtml(line)}</p>`)
-        .join("");
-      return (
-        `<div class="author-block author-stacked">` +
-        `<p class="author-name">${escapeHtml(block.name)}</p>` +
-        detailHtml +
-        `</div>`
-      );
-    })
-    .join("");
-  return `<div class="author-grid author-stacked-container">${blocksHtml}</div>`;
+export interface ParsedDocument {
+  frontMatter: {
+    title: string | null;
+    authorBlocks: AuthorBlock[];
+  };
+  nodes: ASTNode[];
 }
 
-/* ═══════════════════════════════════════════════════════════════
- *  MAIN FORMATTER
- * ═══════════════════════════════════════════════════════════════ */
+export function parseDocument(rawText: string): ParsedDocument {
+  const lines = rawText.replace(/\r\n?/g, '\n').split('\n');
+  const nodes: ASTNode[] = [];
+  const frontMatterResult = extractFrontMatter(lines);
 
-export interface FormatResult {
-  html: string;
-  sectionCount: number;
-  tableCount: number;
-  equationCount: number;
-  algorithmCount: number;
-  citationCount: number;
-}
-
-export interface FormatOptions {
-  /** 'roman' for IEEE (I, II), 'arabic' for ACM/Springer (1, 2) */
-  numberingStyle?: "roman" | "arabic";
-  /** Show drop-cap on first paragraph of first section */
-  useDropCap?: boolean;
-  /** Hide the IEEE copyright footer */
-  hideCopyright?: boolean;
-  /** Auto-generate CCS Concepts block after abstract */
-  addCCSBlock?: boolean;
-  /** Auto-generate Keywords placeholder block after abstract */
-  addKeywordsBlock?: boolean;
-  /** Author rendering style: 'grid' for IEEE, 'stacked' for ACM (1-to-1 author/affiliation) */
-  authorStyle?: "grid" | "stacked";
-}
-
-export function formatToIEEE(rawText: string, options: FormatOptions = {}): FormatResult {
-  const numberingStyle = options.numberingStyle ?? "roman";
-  const useDropCap = options.useDropCap ?? false;
-  const hideCopyright = options.hideCopyright ?? false;
-  const addCCSBlock = options.addCCSBlock ?? false;
-  const addKeywordsBlock = options.addKeywordsBlock ?? false;
-  const authorStyle = options.authorStyle ?? "grid";
-  const lines = rawText.replace(/\r\n?/g, "\n").split("\n");
-  const htmlParts: string[] = [];
-
-  // ── front matter ──
-  const frontMatter = extractFrontMatter(lines);
-  if (frontMatter.title) {
-    htmlParts.push(
-      `<h1 class="paper-title">${escapeHtml(frontMatter.title)}</h1>`,
-    );
-  }
-  if (authorStyle === "stacked") {
-    // ACM-style: each author stacked vertically with their own affiliation
-    const stackedHtml = renderAuthorBlocksStacked(frontMatter.authorBlocks);
-    if (stackedHtml) htmlParts.push(stackedHtml);
-  } else {
-    const authorGridHtml = renderAuthorBlocks(frontMatter.authorBlocks);
-    if (authorGridHtml) htmlParts.push(authorGridHtml);
-  }
-
-  // ── counters ──
   let paragraphBuffer: string[] = [];
   let tableBuffer: string[] = [];
   let tableCaptionPending: string | null = null;
   let referenceBuffer: string[] = [];
   let referenceLabel: string | null = null;
-
-  let sectionCount = 0;
-  let subsectionCounter = 0; // resets per section
-  let tableCount = 0;
-  let equationCount = 0;
-  let algorithmCount = 0;
-  let citationCount = 0;
-  let citationAnchorCounter = 1;
-  let autoReferenceNumber = 1;
+  
   let inAbstract = false;
   let inReferences = false;
-  let abstractLabelWritten = false;
-  let justAfterHeading = false; // track first-paragraph-after-heading
-  let isFirstSectionFirstPara = false; // drop-cap on Intro's first para
-  let keywordsWritten = false; // prevent duplicate auto-keywords
-  const citationBacklinks = new Map<number, string[]>();
-
-  const citationContext: CitationContext = {
-    getNextCitationId: () => {
-      const id = `cite-${citationAnchorCounter}`;
-      citationAnchorCounter += 1;
-      return id;
-    },
-    registerCitation: (referenceNumber: number, citationId: string) => {
-      const existing = citationBacklinks.get(referenceNumber) ?? [];
-      existing.push(citationId);
-      citationBacklinks.set(referenceNumber, existing);
-    },
-  };
-
-  /* ── flush helpers ── */
 
   const flushParagraph = () => {
     if (!paragraphBuffer.length) return;
-    const text = collapseWhitespace(paragraphBuffer.join(" "));
+    const text = collapseWhitespace(paragraphBuffer.join(' '));
     paragraphBuffer = [];
     if (!text) return;
-
     if (inAbstract) {
-      const sanitized = sanitizeTemplateRestrictedText(text);
-      const abstractPrefix = abstractLabelWritten
-        ? ""
-        : "<strong>Abstract&mdash;</strong> ";
-      abstractLabelWritten = true;
-      htmlParts.push(
-        `<p class="abstract-text">${abstractPrefix}${escapeHtml(sanitized)}</p>`,
-      );
+      nodes.push({ type: 'abstract', text: sanitizeTemplateRestrictedText(text) });
       return;
     }
-
-    const formatted = processInlineContent(text, citationContext);
-    equationCount += formatted.equationCount;
-
-    // Count citations
-    const citationMatches = text.match(/\[\d+(?:\s*[,\-–]\s*\d+)*\]/g);
-    if (citationMatches) citationCount += citationMatches.length;
-
-    // First paragraph after heading: no indent
-    // Drop-cap on the very first paragraph of the first section (Introduction)
-    const cssClasses: string[] = [];
-    if (justAfterHeading) cssClasses.push("no-indent");
-    if (useDropCap && isFirstSectionFirstPara) cssClasses.push("drop-cap");
-    justAfterHeading = false;
-    isFirstSectionFirstPara = false;
-
-    const classAttr = cssClasses.length
-      ? ` class="${cssClasses.join(" ")}"`
-      : "";
-    htmlParts.push(`<p${classAttr}>${formatted.html}</p>`);
+    nodes.push({ type: 'paragraph', text });
   };
 
   const flushTable = () => {
     if (!tableBuffer.length) return;
-    const table = convertTable(tableBuffer, tableCaptionPending ?? undefined);
+    const rows: string[][] = [];
+    for (const line of tableBuffer) {
+      if (isTableSeparatorLine(line)) continue;
+      const row = splitTableRow(line);
+      if (row.length >= 2) rows.push(row);
+    }
     tableBuffer = [];
+    const cap = tableCaptionPending;
     tableCaptionPending = null;
-    if (!table.html) return;
-    tableCount += 1;
-    equationCount += table.equationCount;
-    htmlParts.push(table.html);
+    if (!rows.length) return;
+    
+    const columnCount = Math.max(...rows.map(r => r.length));
+    const normalizedRows = rows.map(r => {
+      const padded = [...r];
+      while (padded.length < columnCount) padded.push('');
+      return padded;
+    });
+
+    nodes.push({ type: 'table', caption: cap, rows: normalizedRows });
   };
 
   const flushReference = () => {
     if (!referenceBuffer.length) return;
-    const text = collapseWhitespace(referenceBuffer.join(" "));
+    const text = collapseWhitespace(referenceBuffer.join(' '));
     referenceBuffer = [];
     if (!text) return;
-
-    const inline = processInlineContent(text);
-    equationCount += inline.equationCount;
-    const label = referenceLabel ?? `[${autoReferenceNumber}]`;
-    if (!referenceLabel) autoReferenceNumber += 1;
-    const refNumberMatch = label.match(/\[(\d+)\]/);
-    const refId = refNumberMatch ? `ref-${refNumberMatch[1]}` : undefined;
-    const refNumber = refNumberMatch
-      ? Number.parseInt(refNumberMatch[1], 10)
-      : Number.NaN;
-    const backlinks = Number.isFinite(refNumber)
-      ? (citationBacklinks.get(refNumber) ?? [])
-      : [];
-    const backlinkHtml = backlinks.length
-      ? `<span class="reference-backlinks"> ${backlinks
-        .map(
-          (citationId, index) =>
-            `<a class="reference-backlink" href="#${citationId}" title="Back to citation${backlinks.length > 1 ? ` ${index + 1}` : ""}">↩</a>`,
-        )
-        .join(" ")}</span>`
-      : "";
+    nodes.push({ type: 'reference', label: referenceLabel, text });
     referenceLabel = null;
-    htmlParts.push(
-      `<p class="reference-item"${refId ? ` id="${refId}"` : ""}>` +
-      `<span class="reference-label">${label}</span> ${inline.html}${backlinkHtml}` +
-      `</p>`,
-    );
   };
 
-  /* ── main loop ── */
-
-  for (let i = frontMatter.startIndex; i < lines.length; i += 1) {
+  for (let i = frontMatterResult.startIndex; i < lines.length; i += 1) {
     const line = lines[i];
     const trimmed = collapseWhitespace(line);
 
-    // Empty line → flush all buffers
     if (!trimmed) {
-      flushTable();
-      flushParagraph();
-      flushReference();
+      flushTable(); flushParagraph(); flushReference();
       continue;
     }
-
     if (isTemplateInstructionLine(trimmed)) continue;
 
-    // ── Inline abstract (e.g. "Abstract: We present...")
-    const abstractInlineMatch = trimmed.match(
-      /^abstract\b(?:\s*[^\w\s]\s*|\s+)(.+)$/i,
-    );
+    const abstractInlineMatch = trimmed.match(/^abstract\b(?:\s*[^\w\s]\s*|\s+)(.+)$/i);
     if (abstractInlineMatch) {
-      flushTable();
-      flushParagraph();
-      flushReference();
+      flushTable(); flushParagraph(); flushReference();
       inAbstract = true;
       inReferences = false;
-      const sanitized = sanitizeTemplateRestrictedText(abstractInlineMatch[1]);
-      htmlParts.push(
-        `<p class="abstract-text"><strong>Abstract&mdash;</strong> ${escapeHtml(sanitized)}</p>`,
-      );
-      abstractLabelWritten = true;
-      justAfterHeading = false;
+      nodes.push({ type: 'abstract', text: sanitizeTemplateRestrictedText(abstractInlineMatch[1]) });
       continue;
     }
 
-    // ── Keywords / Index Terms
-    const keywordMatch = trimmed.match(
-      /^(?:index terms?|keywords?)\b(?:\s*[^\w\s]\s*|\s+)(.+)$/i,
-    );
+    const keywordMatch = trimmed.match(/^(?:index terms?|keywords?)\b(?:\s*[^\w\s]\s*|\s+)(.+)$/i);
     if (keywordMatch) {
-      flushTable();
-      flushParagraph();
-      flushReference();
-      const formatted = processInlineContent(keywordMatch[1]);
-      equationCount += formatted.equationCount;
-      htmlParts.push(
-        `<p class="index-terms"><strong>Keywords&mdash;</strong> ${formatted.html}</p>`,
-      );
+      flushTable(); flushParagraph(); flushReference();
+      nodes.push({ type: 'keywords', text: keywordMatch[1] });
       inAbstract = false;
-      justAfterHeading = false;
       continue;
     }
 
-    // ── Algorithm block detection
     const algoStart = isAlgorithmStart(trimmed);
     if (algoStart) {
-      flushTable();
-      flushParagraph();
-      flushReference();
+      flushTable(); flushParagraph(); flushReference();
       inAbstract = false;
-
-      // Collect algorithm body lines
       const algoBodyLines: string[] = [];
       let j = i + 1;
-
-      // Skip leading blank lines and template instruction labels (e.g. "Plaintext")
       while (j < lines.length) {
         const peek = collapseWhitespace(lines[j]);
-        if (!peek || isTemplateInstructionLine(peek)) {
-          j++;
-          continue;
-        }
+        if (!peek || isTemplateInstructionLine(peek)) { j++; continue; }
         break;
       }
-
       while (j < lines.length) {
         const algoLine = lines[j];
         const algoTrimmed = collapseWhitespace(algoLine);
         if (!algoTrimmed) {
-          // Empty line might be internal spacing or end of algorithm
-          // Look ahead past ALL blank lines and template instructions
           let lookAhead = j + 1;
           while (lookAhead < lines.length) {
             const laText = collapseWhitespace(lines[lookAhead]);
-            if (!laText || isTemplateInstructionLine(laText)) {
-              lookAhead++;
-              continue;
-            }
+            if (!laText || isTemplateInstructionLine(laText)) { lookAhead++; continue; }
             break;
           }
-          if (
-            lookAhead < lines.length &&
-            isAlgorithmBodyLine(lines[lookAhead])
-          ) {
-            algoBodyLines.push(""); // keep internal blank line
-            j++;
-            continue;
+          if (lookAhead < lines.length && isAlgorithmBodyLine(lines[lookAhead])) {
+            algoBodyLines.push(''); j++; continue;
           }
           break;
         }
-        if (isTemplateInstructionLine(algoTrimmed)) {
-          j++; // skip template instruction inside algorithm
-          continue;
-        }
+        if (isTemplateInstructionLine(algoTrimmed)) { j++; continue; }
         if (isAlgorithmBodyLine(algoLine)) {
           algoBodyLines.push(algoLine);
           j++;
@@ -1208,374 +1013,83 @@ export function formatToIEEE(rawText: string, options: FormatOptions = {}): Form
           break;
         }
       }
-
-      algorithmCount += 1;
-      htmlParts.push(renderAlgorithmBlock(algoStart.title, algoBodyLines));
-      i = j - 1; // advance past algorithm body
-      justAfterHeading = false;
+      nodes.push({ type: 'algorithm', title: algoStart.title, lines: algoBodyLines });
+      i = j - 1;
       continue;
     }
 
-    // ── Table caption line (e.g. "Table 1: Results")
     const tableCaption = parseTableCaption(trimmed);
     if (tableCaption && !inReferences) {
-      flushTable();
-      flushParagraph();
-      // Look ahead: is the next non-empty line a table?
+      flushTable(); flushParagraph();
       let nextIdx = i + 1;
-      while (nextIdx < lines.length && !collapseWhitespace(lines[nextIdx])) {
-        nextIdx++;
-      }
+      while (nextIdx < lines.length && !collapseWhitespace(lines[nextIdx])) { nextIdx++; }
       if (nextIdx < lines.length && isTableLine(lines[nextIdx])) {
-        // This is a caption for the upcoming table, store it
         tableCaptionPending = tableCaption;
         continue;
       }
-      // Not followed by a table—render as a standalone caption paragraph
-      htmlParts.push(
-        `<p class="table-caption">${escapeHtml(tableCaption)}</p>`,
-      );
+      nodes.push({ type: 'paragraph', text: tableCaption });
       continue;
     }
 
-    // ── Table data lines  (use original line to preserve tab characters)
     if (isTableLine(line)) {
-      flushParagraph();
-      flushReference();
+      flushParagraph(); flushReference();
       tableBuffer.push(line);
       continue;
     }
     flushTable();
 
-    // ── References zone
     if (inReferences) {
       const breakHeading = detectHeading(trimmed);
-      const isReferenceSectionBreak =
-        breakHeading.kind === "appendix" ||
-        breakHeading.kind === "acknowledgment";
-
-      if (isReferenceSectionBreak) {
+      const isBreak = breakHeading.kind === 'appendix' || breakHeading.kind === 'acknowledgment';
+      if (isBreak) {
         flushReference();
         inReferences = false;
-        htmlParts.push(
-          `<h1 class="ieee-heading">${escapeHtml(breakHeading.title)}</h1>`,
-        );
-        justAfterHeading = true;
+        nodes.push({ type: 'heading', level: 1, kind: breakHeading.kind, title: breakHeading.title });
         continue;
       }
-
-      const referenceStart = parseReferenceStart(trimmed);
-      if (referenceStart) {
+      const refStart = parseReferenceStart(trimmed);
+      if (refStart) {
         flushReference();
-        referenceLabel = referenceStart.label;
-        referenceBuffer.push(referenceStart.content);
+        referenceLabel = refStart.label;
+        referenceBuffer.push(refStart.content);
       } else if (referenceBuffer.length) {
         referenceBuffer.push(trimmed);
       } else {
-        referenceLabel = `[${autoReferenceNumber}]`;
-        autoReferenceNumber += 1;
+        referenceLabel = null;
         referenceBuffer.push(trimmed);
       }
       continue;
     }
 
-    // ── Heading detection
     const heading = detectHeading(trimmed);
-    if (heading.kind !== "none") {
-      flushParagraph();
-      flushReference();
-      inAbstract = false;
-      inReferences = false;
-
-      if (heading.kind === "abstract") {
+    if (heading.kind !== 'none') {
+      flushParagraph(); flushReference();
+      inAbstract = false; inReferences = false;
+      if (heading.kind === 'abstract') {
         inAbstract = true;
-        abstractLabelWritten = false;
-        justAfterHeading = true;
         continue;
       }
-
-      // Auto-generate CCS and Keywords blocks when leaving abstract
-      // (inserted before the first non-abstract section heading)
-
-      if (heading.kind === "references") {
-        htmlParts.push(`<h1 class="ieee-heading">References</h1>`);
+      if (heading.kind === 'references') {
         inReferences = true;
-        justAfterHeading = false;
+        nodes.push({ type: 'heading', level: 1, kind: heading.kind, title: 'References' });
         continue;
       }
-
-      if (heading.kind === "appendix" || heading.kind === "acknowledgment") {
-        htmlParts.push(
-          `<h1 class="ieee-heading">${escapeHtml(heading.title)}</h1>`,
-        );
-        justAfterHeading = true;
+      if (heading.kind === 'subsection') {
+        nodes.push({ type: 'heading', level: 2, kind: heading.kind, title: heading.title });
         continue;
       }
-
-      if (heading.kind === "subsection") {
-        subsectionCounter += 1;
-        if (numberingStyle === "arabic") {
-          // ACM/Springer: 1.1, 1.2 style numbering
-          htmlParts.push(
-            `<h2 class="ieee-subheading">${sectionCount}.${subsectionCounter} ${escapeHtml(heading.title)}</h2>`,
-          );
-        } else {
-          // IEEE: A., B. style
-          const letterLabel = toLetterLabel(subsectionCounter);
-          htmlParts.push(
-            `<h2 class="ieee-subheading"><em>${letterLabel}. ${escapeHtml(heading.title)}</em></h2>`,
-          );
-        }
-        justAfterHeading = true;
-        continue;
-      }
-
-      // Main section
-      sectionCount += 1;
-      subsectionCounter = 0; // reset subsection counter
-
-      // Insert CCS/Keywords blocks right before the first real section (after abstract)
-      if (sectionCount === 1) {
-        if (addCCSBlock) {
-          htmlParts.push(
-            `<div class="ccs-concepts"><p class="ccs-title"><strong>CCS Concepts</strong></p>` +
-            `<p class="ccs-item">&bull; <em>Computing methodologies</em> &rarr; <em>Artificial intelligence</em></p></div>`,
-          );
-        }
-        if (addKeywordsBlock && !keywordsWritten) {
-          htmlParts.push(
-            `<p class="acm-keywords"><strong>Keywords</strong> &mdash; research, methodology, analysis</p>`,
-          );
-          keywordsWritten = true;
-        }
-      }
-
-      if (numberingStyle === "arabic") {
-        // ACM/Springer: 1., 2. style numbering in bold
-        htmlParts.push(
-          `<h1 class="ieee-heading">${sectionCount} ${escapeHtml(heading.title).toUpperCase()}</h1>`,
-        );
-      } else {
-        // IEEE: I., II. Roman numeral style
-        const romanLabel = toRoman(sectionCount);
-        htmlParts.push(
-          `<h1 class="ieee-heading">${romanLabel}. ${escapeHtml(heading.title).toUpperCase()}</h1>`,
-        );
-      }
-      justAfterHeading = true;
-      // Mark first paragraph of the very first section for drop-cap
-      if (sectionCount === 1) {
-        isFirstSectionFirstPara = true;
-      }
+      nodes.push({ type: 'heading', level: 1, kind: heading.kind, title: heading.title });
       continue;
     }
 
-    // ── Regular paragraph text
     paragraphBuffer.push(trimmed);
   }
 
-  // ── final flush ──
-  flushTable();
-  flushParagraph();
-  flushReference();
-  if (!hideCopyright) {
-    htmlParts.push(`<p class="ieee-copyright">${IEEE_COPYRIGHT_FOOTER}</p>`);
-  }
+  flushTable(); flushParagraph(); flushReference();
 
   return {
-    html: htmlParts.join("\n"),
-    sectionCount,
-    tableCount,
-    equationCount,
-    algorithmCount,
-    citationCount,
+    frontMatter: { title: frontMatterResult.title, authorBlocks: frontMatterResult.authorBlocks },
+    nodes
   };
 }
 
-/**
- * Estimate page count with simple IEEE-friendly heuristics.
- */
-export function estimatePageCount(html: string, colCount: 1 | 2): number {
-  const textOnly = html
-    .replace(/<blockquote[^>]*>[\s\S]*?<\/blockquote>/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const wordCount = textOnly ? textOnly.split(" ").length : 0;
-  const tableCount = (html.match(/<table>/g) || []).length;
-  const equationCount = (
-    html.match(/class="math-inline"|class="equation"/g) || []
-  ).length;
-
-  const wordsPerPage = colCount === 2 ? 750 : 1050;
-  const structuralPenalty = tableCount * 0.33 + equationCount * 0.08;
-  return Math.max(1, Math.ceil(wordCount / wordsPerPage + structuralPenalty));
-}
-
-/**
- * Convert TipTap's JSON document model back to structured plain text
- * that formatToIEEE() can correctly parse.
- *
- * TipTap's JSON preserves structural node types (heading, paragraph, table,
- * list, etc.) even though it strips CSS classes. This function linearises
- * those nodes into a text format identical to what a user would paste into
- * the raw-text input, so we can safely re-run formatToIEEE().
- *
- * Key roundtrip-safety measures:
- *  - The first h1 that doesn't look like a section heading gets a "TITLE:"
- *    prefix so extractFrontMatter always recognises the paper title.
- *  - Body paragraphs (after abstract / first section heading) are separated
- *    by blank lines so formatToIEEE treats them as individual paragraphs.
- *  - The IEEE copyright footer line is filtered out to prevent duplication.
- */
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TipTapNode = Record<string, any>;
-
-function extractNodeText(node: TipTapNode): string {
-  if (!node) return "";
-  if (node.type === "text") return (node.text as string) || "";
-  if (node.type === "hardBreak") return "\n";
-  if (!node.content) return "";
-  return (node.content as TipTapNode[]).map(extractNodeText).join("");
-}
-
-/**
- * Determine whether a heading's text looks like an IEEE section heading
- * (numbered, letter-prefixed, or a well-known section name) rather than
- * a paper title.
- */
-function isLikelySectionHeading(text: string): boolean {
-  const trimmed = text.trim();
-  // Has roman-numeral or numeric prefix: "I. INTRO", "2. METHOD"
-  if (/^(?:\d+|[IVXLCM]+)[.)\s]\s*/i.test(trimmed)) return true;
-  // Special section names
-  if (
-    /^(?:abstract|references|bibliography|acknowledg?ments?|appendix)\s*:?\s*$/i.test(
-      trimmed,
-    )
-  )
-    return true;
-  // Letter-prefixed subsection: "A. Data Collection"
-  if (/^[A-Z][.)\s]\s+\S+/.test(trimmed)) return true;
-  // Known main-section keyword
-  const cleaned = trimmed.replace(/[.:]\s*$/, "").trim();
-  for (const kw of MAIN_SECTION_KEYWORDS) {
-    if (kw.regex.test(cleaned)) return true;
-  }
-  return false;
-}
-
-/** Pattern that matches the IEEE copyright footer added by formatToIEEE. */
-const COPYRIGHT_ROUNDTRIP_PATTERN = /XXX-X-XXXX|©\s*\d{2,4}XX?\s+IEEE/i;
-
-export function tiptapJsonToStructuredText(doc: TipTapNode): string {
-  if (!doc || !doc.content) return "";
-
-  const blocks: string[] = [];
-  let isFirstH1 = true;
-  // After the abstract / first section heading we're in "body" territory and
-  // each paragraph must be separated by a blank line so formatToIEEE keeps
-  // them as individual paragraphs.
-  let inBodyContent = false;
-
-  for (const node of doc.content as TipTapNode[]) {
-    switch (node.type) {
-      case "heading": {
-        const text = extractNodeText(node).trim();
-        if (text) {
-          blocks.push(""); // blank line before heading
-
-          if (
-            isFirstH1 &&
-            node.attrs?.level === 1 &&
-            !isLikelySectionHeading(text)
-          ) {
-            // First h1 that isn't a section heading → paper title.
-            // Prefix so extractFrontMatter's titleTagged regex picks it up.
-            blocks.push(`TITLE: ${text}`);
-          } else {
-            blocks.push(text);
-            // Any section heading means we've left front-matter.
-            inBodyContent = true;
-          }
-
-          if (node.attrs?.level === 1) isFirstH1 = false;
-          blocks.push(""); // blank line after heading
-        }
-        break;
-      }
-
-      case "paragraph": {
-        const text = extractNodeText(node).trim();
-
-        // Drop IEEE copyright footer to prevent duplication on re-format.
-        if (text && COPYRIGHT_ROUNDTRIP_PATTERN.test(text)) {
-          break;
-        }
-
-        // Abstract / keywords mark the transition to body content.
-        if (text && /^(?:abstract|keywords?|index\s+terms?)\b/i.test(text)) {
-          inBodyContent = true;
-        }
-
-        blocks.push(text);
-
-        // In body content, separate every non-empty paragraph with a blank
-        // line so formatToIEEE treats them as distinct paragraphs.
-        if (text && inBodyContent) {
-          blocks.push("");
-        }
-        break;
-      }
-
-      case "table": {
-        const rows: string[] = [];
-        for (const row of (node.content || []) as TipTapNode[]) {
-          if (row.type !== "tableRow") continue;
-          const cells: string[] = [];
-          for (const cell of (row.content || []) as TipTapNode[]) {
-            cells.push(extractNodeText(cell).trim());
-          }
-          if (cells.length) rows.push(cells.join(" | "));
-        }
-        if (rows.length) {
-          blocks.push("");
-          blocks.push(rows.join("\n"));
-          blocks.push("");
-        }
-        break;
-      }
-
-      case "bulletList":
-      case "orderedList": {
-        const items: string[] = [];
-        for (const item of (node.content || []) as TipTapNode[]) {
-          const text = extractNodeText(item).trim();
-          if (text) items.push(`- ${text}`);
-        }
-        if (items.length) {
-          blocks.push("");
-          blocks.push(items.join("\n"));
-          blocks.push("");
-        }
-        break;
-      }
-
-      case "blockquote": {
-        const text = extractNodeText(node).trim();
-        if (text) blocks.push(text);
-        break;
-      }
-
-      default: {
-        const text = extractNodeText(node).trim();
-        if (text) blocks.push(text);
-        break;
-      }
-    }
-  }
-
-  return blocks.join("\n");
-}

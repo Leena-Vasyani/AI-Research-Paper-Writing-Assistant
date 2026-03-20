@@ -874,3 +874,155 @@ button {
 .ieee-preview-html .front-matter-glossary p {
   text-align: left;
 }
+
+/* ACM SIGCONF Styles */
+.ieee-preview-html .acm-title-block {
+  text-align: center;
+  margin-bottom: 24pt;
+  column-span: all;
+}
+.ieee-preview-html .acm-paper-title {
+  font-size: 18pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin: 0 0 16pt;
+  font-family: inherit;
+  column-span: all;
+}
+.ieee-preview-html .acm-author-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16pt 32pt;
+  margin: 0 0 16pt;
+}
+.ieee-preview-html .acm-author-block {
+  text-align: center;
+  min-width: 150px;
+}
+.ieee-preview-html .acm-author-name {
+  font-size: 11pt;
+  font-weight: bold;
+  margin: 0 0 4pt;
+}
+.ieee-preview-html .acm-author-detail {
+  font-size: 10pt;
+  margin: 0;
+}
+.ieee-preview-html .acm-copyright-box {
+  float: left;
+  width: 100%;
+  border-top: 1px solid #ccc;
+  padding-top: 8pt;
+  margin-top: 24pt;
+  margin-bottom: 12pt;
+  font-size: 7.5pt;
+  line-height: 1.2;
+}
+.ieee-preview-html .acm-copyright-box p {
+  text-indent: 0;
+  margin: 0 0 4pt;
+  text-align: justify;
+}
+.ieee-preview-html .acm-abstract, .ieee-preview-html .acm-keywords, .ieee-preview-html .ccs-concepts {
+  font-size: 9pt;
+  margin-bottom: 12pt;
+}
+.ieee-preview-html .acm-heading-abstract {
+  font-size: 10pt;
+  font-weight: bold;
+  margin-bottom: 6pt;
+  text-indent: 0;
+}
+.ieee-preview-html .acm-abstract-text {
+  text-indent: 14pt;
+  margin: 0;
+  text-align: justify;
+}
+.ieee-preview-html .acm-heading {
+  font-size: 12pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin: 16pt 0 8pt;
+}
+.ieee-preview-html .acm-subheading {
+  font-size: 11pt;
+  font-weight: bold;
+  text-transform: none;
+  margin: 12pt 0 6pt;
+}
+.ieee-preview-html .acm-paragraph {
+  text-indent: 14pt;
+  margin: 0 0 8pt;
+  text-align: justify;
+}
+.ieee-preview-html .acm-reference-format {
+  font-size: 8.5pt;
+  line-height: 1.3;
+  background: #f8f9fa;
+  padding: 8pt;
+  border-left: 3px solid #666;
+  margin: 16pt 0;
+  text-align: left;
+}
+.ieee-preview-html .acm-reference-item {
+  font-size: 9pt;
+}
+.ieee-preview-html .acm-reference-label {
+  font-weight: bold;
+}
+
+/* Springer LNCS Styles */
+.ieee-preview-html .springer-title {
+  font-size: 16pt;
+  font-weight: bold;
+  text-align: center;
+  margin: 24pt 0 16pt;
+  column-span: all;
+}
+.ieee-preview-html .springer-author-block {
+  text-align: center;
+  margin-bottom: 24pt;
+  column-span: all;
+}
+.ieee-preview-html .springer-authors {
+  font-size: 11pt;
+  margin: 0 0 8pt;
+}
+.ieee-preview-html .springer-affiliation {
+  font-size: 9.5pt;
+  color: #333;
+  margin: 0 0 4pt;
+}
+.ieee-preview-html .springer-abstract, .ieee-preview-html .springer-keywords {
+  font-size: 9.5pt;
+  margin: 0 24pt 12pt 24pt;
+  text-align: justify;
+}
+.ieee-preview-html .springer-heading {
+  font-size: 13pt;
+  font-weight: bold;
+  margin: 18pt 0 8pt;
+  text-align: left;
+}
+.ieee-preview-html .springer-subheading {
+  font-size: 11pt;
+  font-weight: bold;
+  margin: 12pt 0 6pt;
+  text-align: left;
+}
+.ieee-preview-html .springer-paragraph {
+  text-indent: 16pt;
+  margin: 0 0 8pt;
+  text-align: justify;
+}
+.ieee-preview-html .springer-table-caption {
+  font-size: 9.5pt;
+  text-align: center;
+  margin: 12pt 0 6pt;
+}
+.ieee-preview-html .springer-reference-item {
+  font-size: 9.5pt;
+  margin: 0 0 4pt;
+}
+

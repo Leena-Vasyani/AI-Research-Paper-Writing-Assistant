@@ -19,102 +19,224 @@ import Badge from "@/components/Badge";
 import TableInsertDialog from "@/components/TableInsertDialog";
 import EquationEditor from "@/components/EquationEditor";
 import { api } from "@/lib/api";
-import { formatToIEEE, estimatePageCount } from "@/lib/ieee-formatter";
+import { estimatePageCount } from "@/lib/ieee-formatter";
+import { parseDocument } from "@/lib/parser/document-parser";
+import { formatToIEEE } from "@/lib/formatters/ieee";
+import { formatToACM } from "@/lib/formatters/acm";
+import { formatToSpringer } from "@/lib/formatters/springer";
+import type { FormatOptions } from "@/lib/formatters/ieee";
 import {
   IeeeContainer,
   IeeeHeading,
   IeeeParagraph,
 } from "@/lib/tiptap/ieee-nodes";
 
-// IEEE Format Presets
-type IEEEFormat = "conference" | "journal" | "transactions";
+// Document Format Presets — all supported templates
+type DocumentFormat =
+  | "conference"
+  | "journal"
+  | "transactions"
+  | "acm-sigconf"
+  | "springer-lncs";
+
+type FormatFamily = "ieee" | "acm" | "springer";
 
 type FormatPreset = {
   name: string;
+  family: FormatFamily;
   description: string;
+  paperSize: "a4" | "letter";
   colCount: 1 | 2;
   colGap: string;
   fontFamily: string;
   fontSize: string;
+  titleFontFamily: string;
+  titleSize: string;
+  titleWeight: "normal" | "bold";
   marginX: string;
   marginTop: string;
   marginBottom: string;
-  titleSize: string;
-  abstractStyle: "italic" | "normal";
+  abstractStyle: "italic" | "normal" | "bold";
+  abstractInset: string;
+  headingNumbering: "roman" | "arabic";
+  bodyLineHeight: string;
+  paragraphIndent: string;
+  captionSize: string;
+  referenceSize: string;
   enabled: boolean;
 };
 
-const IEEE_PRESETS: Record<IEEEFormat, FormatPreset> = {
+const FORMAT_PRESETS: Record<DocumentFormat, FormatPreset> = {
   conference: {
     name: "IEEE Conference",
-    description: "Strict MS Word Conference-template-A4 layout",
+    family: "ieee",
+    description: "Conference-template-A4: 2-col, 10pt, Roman-numeral headings, 24pt title",
+    paperSize: "a4",
     colCount: 2,
     colGap: "0.17in",
     fontFamily: '"Times New Roman", Times, serif',
     fontSize: "10pt",
+    titleFontFamily: '"Times New Roman", Times, serif',
+    titleSize: "24pt",
+    titleWeight: "normal",
     marginX: "0.56in",
     marginTop: "0.75in",
     marginBottom: "1.69in",
-    titleSize: "24pt",
     abstractStyle: "normal",
+    abstractInset: "0",
+    headingNumbering: "roman",
+    bodyLineHeight: "1.14",
+    paragraphIndent: "14.4pt",
+    captionSize: "8pt",
+    referenceSize: "8pt",
     enabled: true,
   },
   journal: {
     name: "IEEE Journal",
-    description: "Reserved for future journal-specific template support",
+    family: "ieee",
+    description: "US-Letter, 2-col, 26pt title, bold abstract, 0.25in column gap",
+    paperSize: "letter",
     colCount: 2,
-    colGap: "0.2in",
+    colGap: "0.25in",
     fontFamily: '"Times New Roman", Times, serif',
     fontSize: "10pt",
+    titleFontFamily: '"Times New Roman", Times, serif',
+    titleSize: "26pt",
+    titleWeight: "normal",
     marginX: "0.625in",
     marginTop: "0.875in",
     marginBottom: "0.875in",
-    titleSize: "22pt",
-    abstractStyle: "normal",
-    enabled: false,
+    abstractStyle: "bold",
+    abstractInset: "0",
+    headingNumbering: "roman",
+    bodyLineHeight: "1.14",
+    paragraphIndent: "14.4pt",
+    captionSize: "8pt",
+    referenceSize: "8pt",
+    enabled: true,
   },
   transactions: {
     name: "IEEE Transactions",
-    description: "Reserved for future transactions template support",
-    colCount: 1,
-    colGap: "0in",
+    family: "ieee",
+    description: "US-Letter, 2-col, 24pt title, bold abstract, ComSoc style",
+    paperSize: "letter",
+    colCount: 2,
+    colGap: "0.25in",
     fontFamily: '"Times New Roman", Times, serif',
-    fontSize: "11pt",
-    marginX: "1in",
+    fontSize: "10pt",
+    titleFontFamily: '"Times New Roman", Times, serif',
+    titleSize: "24pt",
+    titleWeight: "normal",
+    marginX: "0.625in",
+    marginTop: "0.875in",
+    marginBottom: "1in",
+    abstractStyle: "bold",
+    abstractInset: "0",
+    headingNumbering: "roman",
+    bodyLineHeight: "1.14",
+    paragraphIndent: "14.4pt",
+    captionSize: "8pt",
+    referenceSize: "8pt",
+    enabled: true,
+  },
+  "acm-sigconf": {
+    name: "ACM SIGCONF",
+    family: "acm",
+    description: "US-Letter, 2-col 3.333in each, 9pt body, 18pt bold sans title, Arabic headings",
+    paperSize: "letter",
+    colCount: 2,
+    colGap: "0.333in",
+    fontFamily: '"Times New Roman", Times, serif',
+    fontSize: "9pt",
+    titleFontFamily: 'Helvetica, Arial, sans-serif',
+    titleSize: "18pt",
+    titleWeight: "bold",
+    marginX: "0.75in",
     marginTop: "1in",
     marginBottom: "1in",
-    titleSize: "20pt",
-    abstractStyle: "italic",
-    enabled: false,
+    abstractStyle: "normal",
+    abstractInset: "0",
+    headingNumbering: "arabic",
+    bodyLineHeight: "1.2",
+    paragraphIndent: "12pt",
+    captionSize: "9pt",
+    referenceSize: "8pt",
+    enabled: true,
+  },
+  "springer-lncs": {
+    name: "Springer LNCS",
+    family: "springer",
+    description: "Single-col, 10pt body, 14pt bold title, 122×193mm print area, abstract inset 1cm",
+    paperSize: "a4",
+    colCount: 1,
+    colGap: "0in",
+    fontFamily: '"Times New Roman", "Computer Modern", Times, serif',
+    fontSize: "10pt",
+    titleFontFamily: '"Times New Roman", "Computer Modern", Times, serif',
+    titleSize: "14pt",
+    titleWeight: "bold",
+    marginX: "1.73in",
+    marginTop: "2.05in",
+    marginBottom: "2.05in",
+    abstractStyle: "normal",
+    abstractInset: "1cm",
+    headingNumbering: "arabic",
+    bodyLineHeight: "1.2",
+    paragraphIndent: "12pt",
+    captionSize: "9pt",
+    referenceSize: "9pt",
+    enabled: true,
   },
 };
 
+const FORMAT_FAMILIES: { key: FormatFamily; label: string }[] = [
+  { key: "ieee", label: "IEEE" },
+  { key: "acm", label: "ACM" },
+  { key: "springer", label: "Springer" },
+];
+
 type PaperSettings = {
-  format: IEEEFormat;
+  format: DocumentFormat;
   colCount: 1 | 2;
   colGap: string;
   fontFamily: string;
   fontSize: string;
+  titleFontFamily: string;
+  titleSize: string;
+  titleWeight: "normal" | "bold";
   marginX: string;
   marginTop: string;
   marginBottom: string;
-  titleSize: string;
-  abstractStyle: "italic" | "normal";
+  abstractStyle: "italic" | "normal" | "bold";
+  abstractInset: string;
+  headingNumbering: "roman" | "arabic";
+  bodyLineHeight: string;
+  paragraphIndent: string;
+  captionSize: string;
+  referenceSize: string;
 };
 
-const createPaperSettings = (format: IEEEFormat): PaperSettings => {
-  const preset = IEEE_PRESETS[format];
+const createPaperSettings = (format: DocumentFormat): PaperSettings => {
+  const preset = FORMAT_PRESETS[format];
   return {
     format,
     colCount: preset.colCount,
     colGap: preset.colGap,
     fontFamily: preset.fontFamily,
     fontSize: preset.fontSize,
+    titleFontFamily: preset.titleFontFamily,
+    titleSize: preset.titleSize,
+    titleWeight: preset.titleWeight,
     marginX: preset.marginX,
     marginTop: preset.marginTop,
     marginBottom: preset.marginBottom,
-    titleSize: preset.titleSize,
     abstractStyle: preset.abstractStyle,
+    abstractInset: preset.abstractInset,
+    headingNumbering: preset.headingNumbering,
+    bodyLineHeight: preset.bodyLineHeight,
+    paragraphIndent: preset.paragraphIndent,
+    captionSize: preset.captionSize,
+    referenceSize: preset.referenceSize,
   };
 };
 
@@ -154,7 +276,7 @@ type ToolButtonProps = {
   tone?: "default" | "danger";
 };
 
-type DocumentMode = "ieee" | "thesis";
+type DocumentMode = "paper" | "thesis";
 
 type EditorMark = {
   type?: string;
@@ -177,7 +299,8 @@ type EditorNode = {
 };
 
 export default function UniversalResearchFormatterPage() {
-  const [documentMode, setDocumentMode] = useState<DocumentMode>("ieee");
+  const [documentMode, setDocumentMode] = useState<DocumentMode>("paper");
+  const [activeFamily, setActiveFamily] = useState<FormatFamily>("ieee");
   const [settings, setSettings] = useState<PaperSettings>(
     createPaperSettings("conference"),
   );
@@ -363,9 +486,10 @@ export default function UniversalResearchFormatterPage() {
   );
 
   // Apply format preset
-  const applyPreset = (format: IEEEFormat) => {
-    if (!IEEE_PRESETS[format].enabled) return;
+  const applyPreset = (format: DocumentFormat) => {
+    if (!FORMAT_PRESETS[format].enabled) return;
     setSettings(createPaperSettings(format));
+    setActiveFamily(FORMAT_PRESETS[format].family);
   };
 
   const ToolButton = ({
@@ -976,7 +1100,32 @@ export default function UniversalResearchFormatterPage() {
 
   const runDeterministicFormat = useCallback(
     (input: string) => {
-      const result = formatToIEEE(input);
+      // Build format options based on active template
+      const preset = FORMAT_PRESETS[settings.format];
+      const parsedDoc = parseDocument(input);
+      let result;
+      let estimatedPages = 1;
+
+      if (preset.family === "acm") {
+        result = formatToACM(parsedDoc, {
+          addCCSBlock: true,
+          addKeywordsBlock: true,
+        });
+        estimatedPages = estimatePageCount(result.html, settings.colCount);
+      } else if (preset.family === "springer") {
+        result = formatToSpringer(parsedDoc, {});
+        estimatedPages = estimatePageCount(result.html, settings.colCount);
+      } else {
+        const formatOpts: FormatOptions = {
+          numberingStyle: preset?.headingNumbering ?? "roman",
+          useDropCap: settings.format === "journal" || settings.format === "transactions",
+          hideCopyright: false,
+          authorStyle: "grid",
+        };
+        result = formatToIEEE(parsedDoc, formatOpts);
+        estimatedPages = estimatePageCount(result.html, settings.colCount);
+      }
+
       if (!result.html) {
         throw new Error("No content generated");
       }
@@ -985,12 +1134,11 @@ export default function UniversalResearchFormatterPage() {
       editor?.commands.setContent(result.html);
       setIeeeHtml(result.html); // Store IEEE HTML directly (bypasses TipTap stripping)
       setPreviewStale(false);
-      const estimatedPages = estimatePageCount(result.html, settings.colCount);
       setPageCount(estimatedPages);
 
       return { result, estimatedPages };
     },
-    [editor, settings.colCount],
+    [editor, settings, settings.format, settings.colCount],
   );
 
   // Smart paste handler: intercept clipboard HTML to preserve table structure
@@ -1173,12 +1321,12 @@ export default function UniversalResearchFormatterPage() {
         const algoLines =
           algoLineElements.length > 0
             ? algoLineElements
-                .map((lineEl) => getElementText(lineEl as HTMLElement))
-                .filter(Boolean)
+              .map((lineEl) => getElementText(lineEl as HTMLElement))
+              .filter(Boolean)
             : (node.textContent ?? "")
-                .split(/\r?\n/)
-                .map((line) => line.trim())
-                .filter(Boolean);
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter(Boolean);
 
         if (/^algorithm\s+\d+/i.test(title)) {
           pushLine(title);
@@ -1294,9 +1442,14 @@ export default function UniversalResearchFormatterPage() {
     );
 
     try {
+      // Map non-IEEE formats to "conference" for the AI enhancer API
+      const apiFormatType: "conference" | "journal" | "transactions" =
+        settings.format === "journal" ? "journal"
+          : settings.format === "transactions" ? "transactions"
+            : "conference";
       const response = await api.formatIEEE({
         raw_text: rawInput.trim(),
-        format_type: settings.format,
+        format_type: apiFormatType,
         detect_equations: true,
         detect_references: true,
       });
@@ -1636,6 +1789,10 @@ export default function UniversalResearchFormatterPage() {
         return "\\documentclass[journal]{IEEEtran}";
       case "transactions":
         return "\\documentclass[10pt,journal,compsoc]{IEEEtran}";
+      case "acm-sigconf":
+        return "\\documentclass[sigconf]{acmart}";
+      case "springer-lncs":
+        return "\\documentclass{llncs}";
       default:
         return "\\documentclass[conference]{IEEEtran}";
     }
@@ -1747,6 +1904,13 @@ export default function UniversalResearchFormatterPage() {
     const content = ieeeHtml || editor.getHTML();
     const abstractFontStyle =
       settings.abstractStyle === "italic" ? "italic" : "normal";
+    const abstractFontWeight =
+      settings.abstractStyle === "bold" ? "bold" : "normal";
+    const pageSize = FORMAT_PRESETS[settings.format]?.paperSize === "letter" ? "letter" : "A4";
+    const isACM = FORMAT_PRESETS[settings.format]?.family === "acm";
+    const isLNCS = FORMAT_PRESETS[settings.format]?.family === "springer";
+    const isIEEE = FORMAT_PRESETS[settings.format]?.family === "ieee";
+    const hasDropCap = settings.format === "journal" || settings.format === "transactions";
 
     // Create a new window for printing
     const printWindow = window.open("", "_blank");
@@ -1759,16 +1923,16 @@ export default function UniversalResearchFormatterPage() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Research Paper - ${documentMode === "thesis" ? "Thesis Mode" : "IEEE Format"}</title>
+        <title>Research Paper - ${FORMAT_PRESETS[settings.format]?.name ?? "Paper"}</title>
         <style>
           @page {
-            size: A4;
+            size: ${pageSize};
             margin: ${settings.marginTop} ${settings.marginX} ${settings.marginBottom} ${settings.marginX};
           }
           body {
             font-family: ${settings.fontFamily};
             font-size: ${settings.fontSize};
-            line-height: 1.14;
+            line-height: ${settings.bodyLineHeight};
             column-count: ${settings.colCount};
             column-gap: ${settings.colGap};
             text-align: justify;
@@ -1779,8 +1943,9 @@ export default function UniversalResearchFormatterPage() {
           .paper-title {
             column-span: all;
             text-align: center;
+            font-family: ${settings.titleFontFamily};
             font-size: ${settings.titleSize};
-            font-weight: normal;
+            font-weight: ${settings.titleWeight};
             margin: 0 0 6pt;
           }
           .author-grid {
@@ -1812,19 +1977,20 @@ export default function UniversalResearchFormatterPage() {
             text-indent: 0;
           }
           h1, h1.ieee-heading {
-            font-size: 10pt;
-            font-weight: normal;
-            font-variant: small-caps;
+            font-size: ${isACM ? '12pt' : '10pt'};
+            font-weight: ${isACM || isLNCS ? 'bold' : 'normal'};
+            font-variant: ${isACM || isLNCS ? 'normal' : 'small-caps'};
             text-transform: none;
-            text-align: center;
+            text-align: ${isACM || isLNCS ? 'left' : 'center'};
             margin: 10pt 0 4pt;
             break-after: avoid-column;
           }
           h1.paper-title {
             column-span: all;
             font-variant: normal;
+            font-family: ${settings.titleFontFamily};
             font-size: ${settings.titleSize};
-            font-weight: normal;
+            font-weight: ${settings.titleWeight};
             text-align: center;
             text-indent: 0;
             margin: 0 0 8pt;
@@ -1840,27 +2006,38 @@ export default function UniversalResearchFormatterPage() {
             column-span: all;
           }
           h2, h2.ieee-subheading {
-            font-size: 10pt;
-            font-style: italic;
-            font-weight: normal;
+            font-size: ${isACM ? '12pt' : '10pt'};
+            font-style: ${isACM || isLNCS ? 'normal' : 'italic'};
+            font-weight: ${isACM || isLNCS ? 'bold' : 'normal'};
             text-transform: none;
             text-align: left;
             margin: 6pt 0 3pt;
             break-after: avoid-column;
           }
           h3 {
-            font-size: 10pt;
+            font-size: ${isACM ? '11pt' : '10pt'};
             font-style: italic;
-            font-weight: normal;
+            font-weight: ${isLNCS ? 'bold' : 'normal'};
             margin: 0;
           }
           p {
-            text-indent: 14.4pt;
+            text-indent: ${settings.paragraphIndent};
             margin: 0 0 6pt;
           }
           p.no-indent {
             text-indent: 0;
           }
+          /* Drop cap — IEEE Journal & Transactions first paragraph of Introduction */
+          ${hasDropCap ? `
+          p.drop-cap::first-letter {
+            font-size: 34pt;
+            font-weight: bold;
+            float: left;
+            line-height: 0.8;
+            padding-top: 4pt;
+            padding-right: 3pt;
+            margin-bottom: -4pt;
+          }` : ''}
           .front-matter-page {
             column-span: all;
             break-inside: avoid;
@@ -1894,26 +2071,68 @@ export default function UniversalResearchFormatterPage() {
             font-size: 9pt;
             line-height: 1.2;
             font-style: ${abstractFontStyle};
+            font-weight: ${abstractFontWeight};
             text-indent: 13.6pt;
             margin: 0 0 10pt;
+            ${settings.abstractInset !== "0" ? `margin-left: ${settings.abstractInset}; margin-right: ${settings.abstractInset};` : ""}
           }
           .index-terms {
             font-size: 9pt;
             text-indent: 13.7pt;
             margin: 0 0 6pt;
+            ${settings.abstractInset !== "0" ? `margin-left: ${settings.abstractInset}; margin-right: ${settings.abstractInset};` : ""}
           }
           .index-terms strong {
             font-style: italic;
             font-weight: bold;
           }
+          /* ACM CCS Concepts block */
+          .ccs-concepts {
+            column-span: all;
+            font-size: 9pt;
+            margin: 6pt 0 10pt;
+            text-indent: 0;
+          }
+          .ccs-title {
+            font-size: 9pt;
+            font-weight: bold;
+            margin: 0 0 2pt;
+            text-indent: 0;
+          }
+          .ccs-item {
+            font-size: 9pt;
+            margin: 0 0 2pt;
+            text-indent: 0;
+          }
+          /* ACM Keywords block */
+          .acm-keywords {
+            column-span: all;
+            font-size: 9pt;
+            margin: 0 0 10pt;
+            text-indent: 0;
+          }
+          /* ACM stacked authors (1-to-1 author/affiliation) */
+          .author-stacked-container {
+            column-span: all;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8pt 24pt;
+            margin: 12pt 0 10pt;
+          }
+          .author-stacked {
+            text-align: center;
+            min-width: 120pt;
+          }
           .reference-item {
-            font-size: 8pt;
+            font-size: ${settings.referenceSize};
             line-height: 1.125;
             text-indent: -18pt;
             padding-left: 18pt;
             margin: 0 0 2.5pt;
           }
           .ieee-copyright {
+            ${!isIEEE ? 'display: none;' : ''}
             position: fixed;
             left: ${settings.marginX};
             bottom: -1.3in;
@@ -1959,8 +2178,8 @@ export default function UniversalResearchFormatterPage() {
           }
           .table-caption {
             text-align: center;
-            font-size: 8pt;
-            font-variant: small-caps;
+            font-size: ${settings.captionSize};
+            font-variant: ${isACM || isLNCS ? 'normal' : 'small-caps'};
             font-weight: bold;
             text-indent: 0;
             margin: 8pt 0 4pt;
@@ -1984,8 +2203,8 @@ export default function UniversalResearchFormatterPage() {
           }
           .figure-caption {
             text-align: center;
-            font-size: 8pt;
-            font-variant: small-caps;
+            font-size: ${settings.captionSize};
+            font-variant: ${isACM || isLNCS ? 'normal' : 'small-caps'};
             text-indent: 0;
             margin: 0;
           }
@@ -2100,63 +2319,76 @@ export default function UniversalResearchFormatterPage() {
 
       <SectionCard
         title="Document Mode"
-        description="Switch between IEEE conference mode and Report/Thesis mode."
+        description="Switch between Research Paper mode (IEEE / ACM / Springer) and Report/Thesis mode."
       >
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => setDocumentMode("ieee")}
-            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-              documentMode === "ieee"
-                ? "border-indigo-500 bg-indigo-600 text-white"
-                : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-            }`}
+            onClick={() => setDocumentMode("paper")}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${documentMode === "paper"
+              ? "border-indigo-500 bg-indigo-600 text-white"
+              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+              }`}
           >
-            IEEE Conference
+            Research Paper
           </button>
           <button
             onClick={() => setDocumentMode("thesis")}
-            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-              documentMode === "thesis"
-                ? "border-indigo-500 bg-indigo-600 text-white"
-                : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-            }`}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${documentMode === "thesis"
+              ? "border-indigo-500 bg-indigo-600 text-white"
+              : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+              }`}
           >
             Report / Thesis
           </button>
         </div>
       </SectionCard>
 
-      {/* IEEE Format Selector */}
+      {/* Format Template Selector */}
       <SectionCard
-        title="IEEE Format Preset"
+        title="Format Template"
         description={
           documentMode === "thesis"
-            ? "IEEE presets are still available, but Thesis mode forces single-column front matter with dedicated builders."
-            : "Conference template is active now. Journal and Transactions are disabled until their dedicated templates are implemented."
+            ? "Format presets are still available, but Thesis mode forces single-column front matter with dedicated builders."
+            : `Active: ${FORMAT_PRESETS[settings.format]?.name ?? "Conference"}. Select a family tab then choose a preset.`
         }
       >
+        {/* Family Tabs */}
+        <div className="mb-3 flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/80 p-1">
+          {FORMAT_FAMILIES.map((fam) => (
+            <button
+              key={fam.key}
+              onClick={() => setActiveFamily(fam.key)}
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${activeFamily === fam.key
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                }`}
+            >
+              {fam.label}
+            </button>
+          ))}
+        </div>
+        {/* Preset Cards (filtered by active family) */}
         <div className="grid gap-2 md:grid-cols-3">
-          {(Object.entries(IEEE_PRESETS) as [IEEEFormat, FormatPreset][]).map(
-            ([key, preset]) => {
+          {(Object.entries(FORMAT_PRESETS) as [DocumentFormat, FormatPreset][])
+            .filter(([, preset]) => preset.family === activeFamily)
+            .map(([key, preset]) => {
               const isDisabled = !preset.enabled;
               return (
                 <button
                   key={key}
                   onClick={() => applyPreset(key)}
                   disabled={isDisabled}
-                  className={`rounded-lg border p-3 text-left transition-all ${
-                    settings.format === key
-                      ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
-                      : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
-                  } ${isDisabled ? "cursor-not-allowed opacity-60 hover:border-zinc-800" : ""}`}
+                  className={`rounded-lg border p-3 text-left transition-all ${settings.format === key
+                    ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
+                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                    } ${isDisabled ? "cursor-not-allowed opacity-60 hover:border-zinc-800" : ""}`}
                 >
                   <div className="flex items-center gap-2">
                     <div
-                      className={`h-3 w-3 rounded-full ${
-                        settings.format === key
-                          ? "bg-indigo-500"
-                          : "bg-zinc-700"
-                      }`}
+                      className={`h-3 w-3 rounded-full ${settings.format === key
+                        ? "bg-indigo-500"
+                        : "bg-zinc-700"
+                        }`}
                     />
                     <span className="font-semibold text-sm text-zinc-100">
                       {preset.name}
@@ -2165,7 +2397,10 @@ export default function UniversalResearchFormatterPage() {
                   <p className="mt-1 text-xs text-zinc-500">
                     {preset.description}
                   </p>
-                  <div className="mt-2 flex gap-2">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                      {preset.paperSize.toUpperCase()}
+                    </span>
                     <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
                       {preset.colCount} col
                     </span>
@@ -2180,8 +2415,7 @@ export default function UniversalResearchFormatterPage() {
                   </div>
                 </button>
               );
-            },
-          )}
+            })}
         </div>
       </SectionCard>
 
@@ -2633,11 +2867,10 @@ Introduction content...
             <button
               onClick={refreshPreview}
               disabled={isRefreshing}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all flex items-center gap-2 ${
-                previewStale
-                  ? "bg-amber-500 text-white hover:bg-amber-400 ring-2 ring-amber-400/40 animate-pulse-once"
-                  : "bg-indigo-600 text-white hover:bg-indigo-500"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all flex items-center gap-2 ${previewStale
+                ? "bg-amber-500 text-white hover:bg-amber-400 ring-2 ring-amber-400/40 animate-pulse-once"
+                : "bg-indigo-600 text-white hover:bg-indigo-500"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {isRefreshing ? (
                 <>
@@ -2810,11 +3043,10 @@ Introduction content...
 
       {exportStatus && (
         <div
-          className={`fixed bottom-20 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2 text-sm font-medium shadow-lg ${
-            exportStatus.includes("failed")
-              ? "bg-red-900/90 text-red-100"
-              : "bg-emerald-900/90 text-emerald-100"
-          }`}
+          className={`fixed bottom-20 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2 text-sm font-medium shadow-lg ${exportStatus.includes("failed")
+            ? "bg-red-900/90 text-red-100"
+            : "bg-emerald-900/90 text-emerald-100"
+            }`}
         >
           {exportStatus}
         </div>
@@ -2838,11 +3070,10 @@ Introduction content...
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
                 disabled={item.disabled}
-                className={`flex w-full items-center justify-between px-3 py-1.5 text-xs ${
-                  item.disabled
-                    ? "cursor-not-allowed text-zinc-600"
-                    : "text-zinc-300 hover:bg-zinc-800"
-                }`}
+                className={`flex w-full items-center justify-between px-3 py-1.5 text-xs ${item.disabled
+                  ? "cursor-not-allowed text-zinc-600"
+                  : "text-zinc-300 hover:bg-zinc-800"
+                  }`}
               >
                 <span>{item.label}</span>
                 {item.shortcut && (
