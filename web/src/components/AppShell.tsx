@@ -30,13 +30,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="sticky top-0 z-40 mb-4 border-b border-white/15 bg-black/20 px-4 py-3 backdrop-blur-xl md:px-6">
           <div className="mx-auto flex max-w-[1920px] items-center justify-between">
             <Link
-              href="/about"
+              href="/"
               className="inline-flex items-center gap-2 rounded-md border border-white/18 bg-white/[0.08] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.14]"
             >
               <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/50 text-[10px] leading-none text-white/90">
                 •
               </span>
-              Contact us
+              ResearchGen
             </Link>
 
             <button
@@ -57,11 +57,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <div
-          className={`fixed inset-0 z-50 transition ${
-            isMenuOpen
-              ? "pointer-events-auto opacity-100"
-              : "pointer-events-none opacity-0"
-          }`}
+          className={`fixed inset-0 z-50 transition ${isMenuOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+            }`}
           aria-hidden={!isMenuOpen}
         >
           <div
@@ -71,9 +70,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
           <aside
             id="primary-menu-panel"
-            className={`absolute right-0 top-0 h-full w-full max-w-md border-l border-white/10 bg-zinc-950/94 p-6 shadow-[0_0_60px_rgba(0,0,0,0.65)] backdrop-blur-2xl transition-transform duration-500 ease-out ${
-              isMenuOpen ? "translate-x-0" : "translate-x-full"
-            }`}
+            className={`absolute right-0 top-0 h-full w-full max-w-md border-l border-white/10 bg-zinc-950/94 p-6 shadow-[0_0_60px_rgba(0,0,0,0.65)] backdrop-blur-2xl transition-transform duration-500 ease-out ${isMenuOpen ? "translate-x-0" : "translate-x-full"
+              }`}
           >
             <div className="flex items-center justify-between">
               <ProjectLogo variant="compact" />
@@ -101,11 +99,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     key={item.href}
                     href={item.href}
                     onClick={() => setIsMenuOpen(false)}
-                    className={`group flex items-center gap-4 border-b border-white/10 py-3 transition ${
-                      active
-                        ? "text-zinc-100"
-                        : "text-zinc-300 hover:text-white"
-                    }`}
+                    className={`group flex items-center gap-4 border-b border-white/10 py-3 transition ${active
+                      ? "text-zinc-100"
+                      : "text-zinc-300 hover:text-white"
+                      }`}
                   >
                     <span className="text-xs tracking-[0.2em] text-zinc-500 transition group-hover:text-zinc-300">
                       {idx}
@@ -114,9 +111,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
                       {item.label}
                     </span>
                     <span
-                      className={`ml-auto h-px w-0 bg-indigo-300/80 transition-all duration-300 group-hover:w-8 ${
-                        active ? "w-8" : ""
-                      }`}
+                      className={`ml-auto h-px w-0 bg-indigo-300/80 transition-all duration-300 group-hover:w-8 ${active ? "w-8" : ""
+                        }`}
                     />
                   </Link>
                 );

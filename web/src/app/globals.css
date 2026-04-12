@@ -1026,3 +1026,98 @@ button {
   margin: 0 0 4pt;
 }
 
+/* APA 7th Edition Styles */
+.ieee-preview-html .apa-title-page {
+  text-align: center;
+  margin-top: 1in;
+}
+.ieee-preview-html .apa-paper-title {
+  font-size: 12pt;
+  font-weight: bold;
+  margin-bottom: 24pt;
+}
+.ieee-preview-html .apa-authors,
+.ieee-preview-html .apa-affiliation {
+  margin: 0 0 12pt;
+}
+.ieee-preview-html .apa-body-content,
+.ieee-preview-html .apa-title-page {
+  line-height: 2.0;
+  text-align: left;
+}
+.ieee-preview-html .apa-heading {
+  font-size: 12pt;
+  font-weight: bold;
+  text-align: center;
+  margin: 24pt 0 12pt;
+}
+.ieee-preview-html .apa-subheading {
+  font-size: 12pt;
+  font-weight: bold;
+  text-align: left;
+  margin: 12pt 0 6pt;
+}
+.ieee-preview-html .apa-paragraph {
+  text-indent: 0.5in;
+  margin: 0;
+}
+.ieee-preview-html .apa-keywords {
+  text-indent: 0.5in;
+  margin: 12pt 0;
+}
+.ieee-preview-html .apa-table-caption {
+  text-align: left;
+  margin: 12pt 0 6pt;
+  line-height: 1.5;
+}
+.ieee-preview-html .apa-reference-item {
+  text-indent: -0.5in;
+  padding-left: 0.5in;
+  margin: 0;
+  line-height: 2.0;
+}
+
+/* MLA 9th Edition Styles */
+.ieee-preview-html .mla-first-page-header {
+  text-align: left;
+  margin-bottom: 12pt;
+  line-height: 2.0;
+}
+.ieee-preview-html .mla-header-line {
+  margin: 0;
+}
+.ieee-preview-html .mla-paper-title {
+  font-size: 12pt;
+  text-align: center;
+  margin: 12pt 0 24pt;
+}
+.ieee-preview-html .mla-body-content {
+  line-height: 2.0;
+  text-align: left;
+}
+.ieee-preview-html .mla-heading {
+  font-size: 12pt;
+  text-align: center;
+  margin: 24pt 0 12pt;
+}
+.ieee-preview-html .mla-subheading {
+  font-size: 12pt;
+  font-style: italic;
+  text-align: left;
+  margin: 12pt 0 6pt;
+}
+.ieee-preview-html .mla-paragraph {
+  text-indent: 0.5in;
+  margin: 0;
+}
+.ieee-preview-html .mla-table-caption {
+  text-align: left;
+  margin: 12pt 0 6pt;
+  line-height: 1.5;
+}
+.ieee-preview-html .mla-reference-item {
+  text-indent: -0.5in;
+  padding-left: 0.5in;
+  margin: 0;
+  line-height: 2.0;
+}

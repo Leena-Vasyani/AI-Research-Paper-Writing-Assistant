@@ -24,6 +24,8 @@ import { parseDocument } from "@/lib/parser/document-parser";
 import { formatToIEEE } from "@/lib/formatters/ieee";
 import { formatToACM } from "@/lib/formatters/acm";
 import { formatToSpringer } from "@/lib/formatters/springer";
+import { formatToAPA } from "@/lib/formatters/apa";
+import { formatToMLA } from "@/lib/formatters/mla";
 import type { FormatOptions } from "@/lib/formatters/ieee";
 import {
   IeeeContainer,
@@ -37,9 +39,11 @@ type DocumentFormat =
   | "journal"
   | "transactions"
   | "acm-sigconf"
-  | "springer-lncs";
+  | "springer-lncs"
+  | "apa"
+  | "mla";
 
-type FormatFamily = "ieee" | "acm" | "springer";
+type FormatFamily = "ieee" | "acm" | "springer" | "apa" | "mla";
 
 type FormatPreset = {
   name: string;
@@ -187,12 +191,62 @@ const FORMAT_PRESETS: Record<DocumentFormat, FormatPreset> = {
     referenceSize: "9pt",
     enabled: true,
   },
+  "apa": {
+    name: "APA 7th Edition",
+    family: "apa",
+    description: "US-Letter, 1-col, 12pt body, double-spaced, 1in margins, title page",
+    paperSize: "letter",
+    colCount: 1,
+    colGap: "0in",
+    fontFamily: '"Times New Roman", Times, serif',
+    fontSize: "12pt",
+    titleFontFamily: '"Times New Roman", Times, serif',
+    titleSize: "12pt",
+    titleWeight: "bold",
+    marginX: "1in",
+    marginTop: "1in",
+    marginBottom: "1in",
+    abstractStyle: "normal",
+    abstractInset: "0",
+    headingNumbering: "arabic",
+    bodyLineHeight: "2.0",
+    paragraphIndent: "0.5in",
+    captionSize: "12pt",
+    referenceSize: "12pt",
+    enabled: true,
+  },
+  "mla": {
+    name: "MLA 9th Edition",
+    family: "mla",
+    description: "US-Letter, 1-col, 12pt body, double-spaced, 1in margins, header block",
+    paperSize: "letter",
+    colCount: 1,
+    colGap: "0in",
+    fontFamily: '"Times New Roman", Times, serif',
+    fontSize: "12pt",
+    titleFontFamily: '"Times New Roman", Times, serif',
+    titleSize: "12pt",
+    titleWeight: "normal",
+    marginX: "1in",
+    marginTop: "1in",
+    marginBottom: "1in",
+    abstractStyle: "normal",
+    abstractInset: "0",
+    headingNumbering: "arabic",
+    bodyLineHeight: "2.0",
+    paragraphIndent: "0.5in",
+    captionSize: "12pt",
+    referenceSize: "12pt",
+    enabled: true,
+  },
 };
 
 const FORMAT_FAMILIES: { key: FormatFamily; label: string }[] = [
   { key: "ieee", label: "IEEE" },
   { key: "acm", label: "ACM" },
   { key: "springer", label: "Springer" },
+  { key: "apa", label: "APA" },
+  { key: "mla", label: "MLA" },
 ];
 
 type PaperSettings = {
@@ -1114,6 +1168,12 @@ export default function UniversalResearchFormatterPage() {
         estimatedPages = estimatePageCount(result.html, settings.colCount);
       } else if (preset.family === "springer") {
         result = formatToSpringer(parsedDoc, {});
+        estimatedPages = estimatePageCount(result.html, settings.colCount);
+      } else if (preset.family === "apa") {
+        result = formatToAPA(parsedDoc, {});
+        estimatedPages = estimatePageCount(result.html, settings.colCount);
+      } else if (preset.family === "mla") {
+        result = formatToMLA(parsedDoc, {});
         estimatedPages = estimatePageCount(result.html, settings.colCount);
       } else {
         const formatOpts: FormatOptions = {

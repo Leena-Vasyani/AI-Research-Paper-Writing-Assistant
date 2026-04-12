@@ -144,7 +144,7 @@ export default function HowItWorksPage() {
         <h2 className="text-xl font-semibold tracking-tight">
           Meet the agents
         </h2>
-        <div className="rounded-[2rem] bg-zinc-900/35 p-3 ring-1 ring-zinc-800/70 backdrop-blur-xl">
+        <div className="   bg-zinc-900/35 p-3 ring-1 ring-zinc-800/70 backdrop-blur-xl">
           {agents.map((agent) => (
             <div
               key={agent.title}
