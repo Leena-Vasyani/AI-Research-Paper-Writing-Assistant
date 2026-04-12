@@ -93,7 +93,7 @@ def _refine_with_gemini(prompt: str) -> str | None:
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=prompt,
             config={
                 "temperature": 0.3,

@@ -22,7 +22,7 @@ class DiagramAgent:
         if self.gemini_api_key and genai is not None:
             try:
                 self.gemini_client = genai.Client(api_key=self.gemini_api_key)
-                self.gemini_model_name = "gemini-2.0-flash-exp"
+                self.gemini_model_name = "gemini-2.5-flash"
             except Exception as e:
                 print(f"⚠️ Gemini init failed: {e}")
                 self.gemini_client = None

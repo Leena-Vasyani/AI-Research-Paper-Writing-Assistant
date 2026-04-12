@@ -21,7 +21,7 @@ class PseudocodeAgent:
 
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
-            self.gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+            self.gemini_model = genai.GenerativeModel("gemini-2.5-flash")
         else:
             self.gemini_model = None
             print(
