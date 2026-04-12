@@ -12,6 +12,8 @@ const mobileNav = [
   { href: "/universal-research-formatter", label: "Formatter" },
   { href: "/diagram-generator", label: "Diagram" },
   { href: "/code-to-pseudocode", label: "Pseudo" },
+  { href: "/github-to-ieee", label: "GitHub→IEEE" },
+  { href: "/doc-chat", label: "DocChat" },
   { href: "/workflow", label: "Workflow" },
   { href: "/agent-hub", label: "Hub" },
   { href: "/about", label: "About" },

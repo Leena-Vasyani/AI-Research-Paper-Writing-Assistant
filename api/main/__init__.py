@@ -31,6 +31,8 @@ from core_agents.plagiarism_agent import PlagiarismDetectionAgent
 from core_agents.citation_agent import CitationAgent
 from core_agents.diagram_agent import DiagramAgent
 from core_agents.pseudocode_agent import PseudocodeAgent
+from core_agents.github_paper_agent import GitHubPaperAgent
+from core_agents.rag_agent import RAGAgent
 from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
 from api.schemas import (
@@ -52,6 +54,14 @@ from api.schemas import (
     FormatIEEERequest,
     CompilePDFRequest,
     ExtractTextResponse,
+    GitHubToIEEERequest,
+    GitHubToIEEEResponse,
+    RAGQueryRequest,
+    RAGQueryResponse,
+    RAGSessionResponse,
+    RAGSessionListItem,
+    RAGMessageResponse,
+    RAGUploadResponse,
 )
 
 app = FastAPI(title="ResearchGen API", version="0.1.0")
@@ -71,6 +81,8 @@ plagiarism_agent = PlagiarismDetectionAgent()
 citation_agent = CitationAgent()
 diagram_agent = DiagramAgent()
 pseudocode_agent = PseudocodeAgent()
+github_paper_agent = GitHubPaperAgent()
+rag_agent = RAGAgent()
 
 
 def _refine_with_groq(prompt: str) -> str | None:
@@ -980,3 +992,156 @@ def compile_pdf(req: CompilePDFRequest) -> Dict[str, Any]:
             "compilation_log": ""
         }
 
+
+# =====================================================================
+# GitHub-to-IEEE Endpoints
+# =====================================================================
+
+
+@app.post("/api/github-to-ieee", response_model=GitHubToIEEEResponse)
+def github_to_ieee(req: GitHubToIEEERequest) -> GitHubToIEEEResponse:
+    """Generate an IEEE-format paper from a GitHub repository."""
+    try:
+        result = github_paper_agent.run(
+            repo_url=req.repo_url,
+            author=req.author,
+            institution=req.institution,
+            max_files=req.max_files,
+        )
+        return GitHubToIEEEResponse(
+            success=True,
+            sections=result["sections"],
+            pdf_base64=result["pdf_base64"],
+            repo_name=result["repo_name"],
+            analysis=result.get("analysis", {}),
+        )
+    except ValueError as e:
+        return GitHubToIEEEResponse(success=False, error=str(e))
+    except RuntimeError as e:
+        return GitHubToIEEEResponse(success=False, error=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================================
+# RAG Document Chat Endpoints
+# =====================================================================
+
+
+@app.post("/api/rag/sessions", response_model=RAGSessionResponse)
+def rag_create_session() -> RAGSessionResponse:
+    """Create a new RAG chat session."""
+    try:
+        result = rag_agent.create_session()
+        return RAGSessionResponse(
+            session_id=result["session_id"],
+            name=result["name"],
+            created_at=result["created_at"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rag/sessions")
+def rag_list_sessions() -> List[Dict[str, Any]]:
+    """List all RAG chat sessions."""
+    try:
+        return rag_agent.list_sessions()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rag/upload", response_model=RAGUploadResponse)
+async def rag_upload(
+    session_id: str = "",
+    files: List[UploadFile] = File(...),
+) -> RAGUploadResponse:
+    """Upload documents to a RAG session for ingestion."""
+    import tempfile as _tempfile
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    try:
+        file_infos = []
+        for upload in files:
+            content = await upload.read()
+            if not content:
+                continue
+            if len(content) > 20 * 1024 * 1024:
+                continue  # Skip files > 20MB
+
+            suffix = os.path.splitext(upload.filename or "")[1]
+            tmp = _tempfile.NamedTemporaryFile(
+                delete=False, suffix=suffix
+            )
+            tmp.write(content)
+            tmp.close()
+
+            file_infos.append(
+                {
+                    "path": tmp.name,
+                    "filename": upload.filename or "unknown",
+                    "content_type": upload.content_type or "",
+                }
+            )
+
+        if not file_infos:
+            return RAGUploadResponse(
+                success=False, errors=["No valid files received."]
+            )
+
+        result = rag_agent.ingest_documents(session_id, file_infos)
+
+        # Cleanup temp files
+        for fi in file_infos:
+            try:
+                os.unlink(fi["path"])
+            except Exception:
+                pass
+
+        return RAGUploadResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rag/query", response_model=RAGQueryResponse)
+def rag_query(req: RAGQueryRequest) -> RAGQueryResponse:
+    """Ask a question about uploaded documents."""
+    try:
+        if not req.session_id or not req.question.strip():
+            raise HTTPException(
+                status_code=400, detail="session_id and question are required"
+            )
+        result = rag_agent.query(req.session_id, req.question.strip())
+        return RAGQueryResponse(
+            answer=result["answer"],
+            sources=result["sources"],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rag/sessions/{session_id}/messages")
+def rag_get_messages(session_id: str) -> List[Dict[str, Any]]:
+    """Get chat history for a RAG session."""
+    try:
+        return rag_agent.get_messages(session_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/rag/sessions/{session_id}")
+def rag_delete_session(session_id: str) -> Dict[str, Any]:
+    """Delete a RAG chat session."""
+    try:
+        deleted = rag_agent.delete_session(session_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -111,3 +111,56 @@ export type CitationFormatResult = {
     url: string;
   };
 };
+
+// ── GitHub-to-IEEE ────────────────────────────────────────────────────
+
+export type GitHubToIEEEResult = {
+  success: boolean;
+  sections: Record<string, string>;
+  pdf_base64: string;
+  repo_name: string;
+  analysis: Record<string, unknown>;
+  error?: string;
+};
+
+// ── RAG Document Chat ─────────────────────────────────────────────────
+
+export type RAGSession = {
+  id: string;
+  name: string;
+  created_at: string;
+  last_active: string;
+  document_count: number;
+};
+
+export type RAGSessionCreateResult = {
+  session_id: string;
+  name: string;
+  created_at: string;
+};
+
+export type RAGMessage = {
+  role: "user" | "assistant";
+  content: string;
+  sources: RAGSource[];
+  created_at: string;
+};
+
+export type RAGSource = {
+  source: string;
+  page?: number;
+  relevance: number;
+  snippet: string;
+};
+
+export type RAGQueryResult = {
+  answer: string;
+  sources: RAGSource[];
+};
+
+export type RAGUploadResult = {
+  success: boolean;
+  processed: number;
+  chunks: number;
+  errors: string[];
+};

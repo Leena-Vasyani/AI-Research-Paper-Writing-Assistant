@@ -16,7 +16,7 @@ export interface FormatResult {
   citationCount: number;
 }
 
-export interface FormatOptions {}
+export type FormatOptions = Record<string, unknown>;
 
 function renderSpringerAuthors(authorBlocks: AuthorBlock[]): string {
   if (!authorBlocks.length) return "";

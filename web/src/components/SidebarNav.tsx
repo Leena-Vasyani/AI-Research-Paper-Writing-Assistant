@@ -11,6 +11,8 @@ const navItems = [
   { href: "/universal-research-formatter", label: "Universal Formatter" },
   { href: "/diagram-generator", label: "Text to Diagram" },
   { href: "/code-to-pseudocode", label: "Code to Pseudocode" },
+  { href: "/github-to-ieee", label: "GitHub → IEEE" },
+  { href: "/doc-chat", label: "DocChat" },
   { href: "/workflow", label: "Workflow" },
   { href: "/agent-hub", label: "Agent Hub" },
   { href: "/about", label: "About" },
