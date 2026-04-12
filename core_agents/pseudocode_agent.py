@@ -8,6 +8,11 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     Groq = None
 
+try:
+    from core_agents.llm_provider import chat_completion as _llm_chat
+except Exception:
+    _llm_chat = None  # type: ignore[assignment]
+
 
 class PseudocodeAgent:
     """
@@ -96,6 +101,23 @@ class PseudocodeAgent:
             print(f"⚠️ Gemini Error in PseudocodeAgent: {exc}")
             return None
 
+    def _generate_with_ollama(self, code: str) -> Optional[str]:
+        if _llm_chat is None:
+            return None
+        try:
+            prompt = f"{self._get_system_prompt()}\n\n### INPUT CODE:\n{code}\n\n### OUTPUT:"
+            text = _llm_chat(prompt, max_tokens=2048, temperature=0.1, top_p=0.95)
+            if not text:
+                return None
+            if "```latex" in text:
+                text = text.split("```latex")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+            return text
+        except Exception as exc:
+            print(f"⚠️ Ollama Error in PseudocodeAgent: {exc}")
+            return None
+
     def _generate_with_groq(self, code: str) -> Optional[str]:
         if not self.groq_api_key or Groq is None:
             return None
@@ -133,8 +155,12 @@ class PseudocodeAgent:
         if not code.strip():
             return {"success": False, "error": "Code input is empty.", "latex_code": ""}
 
-        latex_code = self._generate_with_gemini(code)
-        provider = "gemini"
+        latex_code = self._generate_with_ollama(code)
+        provider = "ollama"
+
+        if not latex_code:
+            latex_code = self._generate_with_gemini(code)
+            provider = "gemini"
 
         if not latex_code:
             latex_code = self._generate_with_groq(code)

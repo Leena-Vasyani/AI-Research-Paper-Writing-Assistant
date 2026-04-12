@@ -19,6 +19,11 @@ try:
 except Exception:
     genai = None
 
+try:
+    from core_agents.llm_provider import chat_completion as _llm_chat
+except Exception:
+    _llm_chat = None  # type: ignore[assignment]
+
 from core_agents.query_agent import ScientificQueryAgent
 from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
@@ -106,98 +111,16 @@ def _refine_with_gemini(prompt: str) -> str | None:
         return None
 
 
-def _autocomplete_with_groq(text: str, max_suggestions: int = 3) -> List[str] | None:
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key or Groq is None:
-        return None
-    prompt = (
-        "You are an academic writing autocomplete engine. "
-        "Return ONLY valid JSON object with key suggestions as a list of short continuation phrases. "
-        f"Provide at most {max_suggestions} suggestions, no numbering, no markdown.\n\n"
-        f"Context:\n{text[-1200:]}"
-    )
-    try:
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            top_p=0.9,
-            max_tokens=160,
-        )
-        content = response.choices[0].message.content.strip()
-        data = _parse_json_block(content)
-        if not data:
-            return None
-        suggestions = data.get("suggestions", [])
-        if not isinstance(suggestions, list):
-            return None
-        return [str(s).strip() for s in suggestions if str(s).strip()][:max_suggestions]
-    except Exception:
-        return None
-
-
-def _max_ngram_overlap(text: str, source_texts: List[str], n: int = 6) -> float:
-    words = re.findall(r"\w+", text.lower())
-    if len(words) < n:
-        return 0.0
-    text_ngrams = {tuple(words[i:i + n]) for i in range(0, len(words) - n + 1)}
-    if not text_ngrams:
-        return 0.0
-    max_overlap = 0.0
-    for src in source_texts:
-        src_words = re.findall(r"\w+", (src or "").lower())
-        if len(src_words) < n:
-            continue
-        src_ngrams = {tuple(src_words[i:i + n]) for i in range(0, len(src_words) - n + 1)}
-        if not src_ngrams:
-            continue
-        overlap = len(text_ngrams.intersection(src_ngrams)) / max(len(text_ngrams), 1)
-        if overlap > max_overlap:
-            max_overlap = overlap
-    return round(max_overlap, 4)
-
-
-def _parse_json_block(text: str) -> Dict[str, Any] | None:
-    try:
-        return json.loads(text)
-    except Exception:
-        match = re.search(r"\{[\s\S]*\}", text)
-        if not match:
-            return None
-        try:
-            return json.loads(match.group(0))
-        except Exception:
-            return None
-
-
-def _format_with_groq(prompt: str) -> Dict[str, Any] | None:
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key or Groq is None:
-        return None
-    try:
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            top_p=0.1,
-            max_tokens=300,
-        )
-        content = response.choices[0].message.content.strip()
-        return _parse_json_block(content)
-    except Exception:
-        return None
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(
-            prompt,
-            generation_config={"temperature": 0.3, "top_p": 0.9, "max_output_tokens": 400},
-        )
-        return response.text.strip() if response and response.text else None
-    except Exception:
-        return None
+def _refine_with_any(prompt: str) -> str | None:
+    """Try Ollama -> Groq -> Gemini for text refinement."""
+    if _llm_chat is not None:
+        result = _llm_chat(prompt, max_tokens=400, temperature=0.3, top_p=0.9)
+        if result:
+            return result
+    result = _refine_with_groq(prompt)
+    if result:
+        return result
+    return _refine_with_gemini(prompt)
 
 
 def _autocomplete_with_groq(text: str, max_suggestions: int = 3) -> List[str] | None:
@@ -282,16 +205,135 @@ def _format_with_groq(prompt: str) -> Dict[str, Any] | None:
         return _parse_json_block(content)
     except Exception:
         return None
+
+
+def _format_with_any(prompt: str) -> Dict[str, Any] | None:
+    """Try Ollama -> Groq for JSON format commands."""
+    if _llm_chat is not None:
+        raw = _llm_chat(prompt, max_tokens=300, temperature=0.0, top_p=0.1)
+        if raw:
+            data = _parse_json_block(raw)
+            if data:
+                return data
+    return _format_with_groq(prompt)
+
+
+def _autocomplete_with_groq(text: str, max_suggestions: int = 3) -> List[str] | None:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
+    prompt = (
+        "You are an academic writing autocomplete engine. "
+        "Return ONLY valid JSON object with key suggestions as a list of short continuation phrases. "
+        f"Provide at most {max_suggestions} suggestions, no numbering, no markdown.\n\n"
+        f"Context:\n{text[-1200:]}"
+    )
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(
-            prompt,
-            generation_config={"temperature": 0.3, "top_p": 0.9, "max_output_tokens": 400},
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            top_p=0.9,
+            max_tokens=160,
         )
-        return response.text.strip() if response and response.text else None
+        content = response.choices[0].message.content.strip()
+        data = _parse_json_block(content)
+        if not data:
+            return None
+        suggestions = data.get("suggestions", [])
+        if not isinstance(suggestions, list):
+            return None
+        return [str(s).strip() for s in suggestions if str(s).strip()][:max_suggestions]
     except Exception:
         return None
+
+
+def _autocomplete_with_any(text: str, max_suggestions: int = 3) -> List[str] | None:
+    """Try Ollama -> Groq for autocomplete (returns parsed suggestions list)."""
+    prompt = (
+        "You are an academic writing autocomplete engine. "
+        "Return ONLY valid JSON object with key suggestions as a list of short continuation phrases. "
+        f"Provide at most {max_suggestions} suggestions, no numbering, no markdown.\n\n"
+        f"Context:\n{text[-1200:]}"
+    )
+    # Ollama
+    if _llm_chat is not None:
+        raw = _llm_chat(prompt, max_tokens=160, temperature=0.4, top_p=0.9)
+        if raw:
+            data = _parse_json_block(raw)
+            if data:
+                suggestions = data.get("suggestions", [])
+                if isinstance(suggestions, list):
+                    result = [str(s).strip() for s in suggestions if str(s).strip()][:max_suggestions]
+                    if result:
+                        return result
+    # Groq fallback
+    return _autocomplete_with_groq(text, max_suggestions)
+
+
+def _max_ngram_overlap(text: str, source_texts: List[str], n: int = 6) -> float:
+    words = re.findall(r"\w+", text.lower())
+    if len(words) < n:
+        return 0.0
+    text_ngrams = {tuple(words[i:i + n]) for i in range(0, len(words) - n + 1)}
+    if not text_ngrams:
+        return 0.0
+    max_overlap = 0.0
+    for src in source_texts:
+        src_words = re.findall(r"\w+", (src or "").lower())
+        if len(src_words) < n:
+            continue
+        src_ngrams = {tuple(src_words[i:i + n]) for i in range(0, len(src_words) - n + 1)}
+        if not src_ngrams:
+            continue
+        overlap = len(text_ngrams.intersection(src_ngrams)) / max(len(text_ngrams), 1)
+        if overlap > max_overlap:
+            max_overlap = overlap
+    return round(max_overlap, 4)
+
+
+def _parse_json_block(text: str) -> Dict[str, Any] | None:
+    try:
+        return json.loads(text)
+    except Exception:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            return None
+
+
+def _format_with_groq(prompt: str) -> Dict[str, Any] | None:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            top_p=0.1,
+            max_tokens=300,
+        )
+        content = response.choices[0].message.content.strip()
+        return _parse_json_block(content)
+    except Exception:
+        return None
+
+
+def _format_with_any(prompt: str) -> Dict[str, Any] | None:
+    """Try Ollama -> Groq for JSON format commands."""
+    if _llm_chat is not None:
+        raw = _llm_chat(prompt, max_tokens=300, temperature=0.0, top_p=0.1)
+        if raw:
+            data = _parse_json_block(raw)
+            if data:
+                return data
+    return _format_with_groq(prompt)
 
 
 @app.get("/api/health")
@@ -598,8 +640,8 @@ def autocomplete(req: AutocompleteRequest) -> AutocompleteResponse:
                 provider="fallback",
             )
 
-        suggestions = _autocomplete_with_groq(text, req.max_suggestions)
-        provider = "groq"
+        suggestions = _autocomplete_with_any(text, req.max_suggestions)
+        provider = "ollama/groq"
 
         if not suggestions:
             tail = " ".join(text.lower().split()[-4:])
@@ -643,11 +685,8 @@ def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
             f"{instruction}\n\nText:\n{req.text}"
         )
 
-        output = _refine_with_groq(prompt)
-        provider = "groq"
-        if not output:
-            output = _refine_with_gemini(prompt)
-            provider = "gemini"
+        output = _refine_with_any(prompt)
+        provider = "ollama/groq/gemini"
 
         if not output:
             output = req.text.strip()
@@ -664,7 +703,7 @@ def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
                     "Do not change factual meaning. Return only rewritten text.\n\n"
                     f"Text:\n{output}"
                 )
-                stronger = _refine_with_groq(strengthen_prompt) or _refine_with_gemini(strengthen_prompt)
+                stronger = _refine_with_any(strengthen_prompt)
                 if stronger:
                     output = stronger
                     overlap_score = _max_ngram_overlap(output, req.source_texts, n=6)
@@ -711,7 +750,7 @@ def format_commands(req: FormatCommandRequest) -> Dict[str, Any]:
             f"User request: {req.prompt}"
         )
 
-        data = _format_with_groq(prompt)
+        data = _format_with_any(prompt)
         if not data:
             return {"cssUpdates": {}, "editorCommands": [], "provider": "fallback"}
 
@@ -742,11 +781,7 @@ def format_commands(req: FormatCommandRequest) -> Dict[str, Any]:
 
 
 def _format_ieee_with_ai(raw_text: str, format_type: str) -> Dict[str, Any] | None:
-    """Use AI to structure raw text into IEEE format HTML."""
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key or Groq is None:
-        return None
-    
+    """Use AI to structure raw text into IEEE format HTML. Tries Ollama -> Groq."""
     prompt = f"""You are an IEEE research paper formatting expert. Convert the following raw text into well-structured HTML for an IEEE {format_type} paper.
 
 CRITICAL RULES:
@@ -790,6 +825,36 @@ RAW TEXT:
 
 Return the formatted HTML:"""
 
+    def _parse_html_response(html_content: str) -> Dict[str, Any]:
+        if html_content.startswith("```"):
+            html_content = re.sub(r'^```\w*\n?', '', html_content)
+            html_content = re.sub(r'\n?```$', '', html_content)
+        sections = len(re.findall(r'<h1>', html_content, re.IGNORECASE))
+        equations = len(re.findall(r'\[Equation:', html_content))
+        references = len(re.findall(r'\[\d+\]', html_content))
+        return {
+            "success": True,
+            "formatted_html": html_content,
+            "sections_detected": sections,
+            "equations_found": equations,
+            "references_found": references,
+        }
+
+    # Try Ollama first
+    if _llm_chat is not None:
+        try:
+            html_content = _llm_chat(prompt, max_tokens=4000, temperature=0.2, top_p=0.9)
+            if html_content:
+                result = _parse_html_response(html_content.strip())
+                result["provider"] = "ollama"
+                return result
+        except Exception as exc:
+            print(f"⚠️ Ollama IEEE format failed: {exc}")
+
+    # Groq fallback
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
     try:
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
@@ -799,25 +864,9 @@ Return the formatted HTML:"""
             max_tokens=4000,
         )
         html_content = response.choices[0].message.content.strip()
-        
-        # Clean up any markdown code blocks
-        if html_content.startswith("```"):
-            html_content = re.sub(r'^```\w*\n?', '', html_content)
-            html_content = re.sub(r'\n?```$', '', html_content)
-        
-        # Count detected elements
-        sections = len(re.findall(r'<h1>', html_content, re.IGNORECASE))
-        equations = len(re.findall(r'\[Equation:', html_content))
-        references = len(re.findall(r'\[\d+\]', html_content))
-        
-        return {
-            "success": True,
-            "formatted_html": html_content,
-            "sections_detected": sections,
-            "equations_found": equations,
-            "references_found": references,
-            "provider": "groq"
-        }
+        result = _parse_html_response(html_content)
+        result["provider"] = "groq"
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 

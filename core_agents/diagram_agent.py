@@ -8,6 +8,10 @@ try:
     from groq import Groq
 except ImportError:
     Groq = None
+try:
+    from core_agents.llm_provider import chat_completion as _llm_chat
+except Exception:
+    _llm_chat = None  # type: ignore[assignment]
 
 class DiagramAgent:
     """
@@ -81,6 +85,22 @@ class DiagramAgent:
             print(f"⚠️ Groq Error in DiagramAgent: {e}")
             return None
 
+    def _generate_with_ollama(self, prompt: str) -> Optional[str]:
+        if _llm_chat is None:
+            return None
+        try:
+            text = _llm_chat(prompt, max_tokens=2048, temperature=0.2, top_p=0.9)
+            if not text:
+                return None
+            if "```mermaid" in text:
+                text = text.split("```mermaid")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+            return text
+        except Exception as e:
+            print(f"⚠️ Ollama Error in DiagramAgent: {e}")
+            return None
+
     def generate_diagram(self, description: str, diagram_type: str = "auto") -> Dict[str, Any]:
         """
         Generate Mermaid code from text description.
@@ -110,10 +130,14 @@ class DiagramAgent:
         Mermaid Code:
         """
         
-        # Try Gemini first, then Groq
-        mermaid_code = self._generate_with_gemini(prompt)
-        provider = "gemini"
-        
+        # Try Ollama first, then Gemini, then Groq
+        mermaid_code = self._generate_with_ollama(prompt)
+        provider = "ollama"
+
+        if not mermaid_code:
+            mermaid_code = self._generate_with_gemini(prompt)
+            provider = "gemini"
+
         if not mermaid_code:
             mermaid_code = self._generate_with_groq(prompt)
             provider = "groq"

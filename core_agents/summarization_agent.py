@@ -11,6 +11,11 @@ import os
 from pathlib import Path
 
 try:
+    from core_agents.llm_provider import chat_completion as _llm_chat
+except Exception:
+    _llm_chat = None  # type: ignore[assignment]
+
+try:
     from dotenv import load_dotenv, find_dotenv
 except Exception:
     load_dotenv = None
@@ -305,6 +310,21 @@ class PaperSummarizationAgent:
         )
         return prompt
 
+    def _summarize_with_ollama(self, prompt: str, max_tokens: int) -> Optional[str]:
+        """Summarize via Ollama Cloud (primary provider)."""
+        if _llm_chat is None:
+            return None
+        try:
+            return _llm_chat(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=0.0,
+                top_p=0.1,
+            )
+        except Exception as e:
+            print(f"   ⚠️ Ollama summarization failed: {e}")
+            return None
+
     def _summarize_with_groq(self, prompt: str, max_tokens: int) -> Optional[str]:
         if not self.groq_client:
             return None
@@ -355,6 +375,8 @@ class PaperSummarizationAgent:
         prompt = self._build_prompt(section_name, keywords, target_words, evidence, cleaned_text)
         max_tokens = int(target_words * 1.5)
 
+        if provider == "ollama":
+            return self._summarize_with_ollama(prompt, max_tokens)
         if provider == "groq":
             return self._summarize_with_groq(prompt, max_tokens)
         if provider == "gemini":
@@ -368,8 +390,8 @@ class PaperSummarizationAgent:
         return None
 
     def summarize_text_best(self, text: str, keywords: List[str], section_name: str, target_words: int) -> str:
-        """Summarize using Groq -> Gemini -> Local fallback order."""
-        providers = ["groq", "gemini", "local"]
+        """Summarize using Ollama -> Groq -> Gemini -> Local fallback order."""
+        providers = ["ollama", "groq", "gemini", "local"]
         for provider in providers:
             print(f"   🔎 Trying provider: {provider}")
             result = self.summarize_text_with_provider(provider, text, keywords, section_name, target_words)
