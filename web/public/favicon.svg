@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ResearchGen favicon">
+  <defs>
+    <linearGradient id="rg-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#111827" />
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#rg-bg)" />
+
+  <rect
+    x="15"
+    y="10"
+    width="34"
+    height="44"
+    rx="8"
+    fill="rgba(39, 39, 42, 0.9)"
+    stroke="rgba(129, 140, 248, 0.8)"
+    stroke-width="1.8"
+  />
+
+  <path d="M22 22h20" stroke="rgba(161, 161, 170, 0.95)" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M22 29h16" stroke="rgba(161, 161, 170, 0.95)" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M22 36h18" stroke="rgba(161, 161, 170, 0.95)" stroke-width="1.8" stroke-linecap="round" />
+
+  <path d="M8 31c3-5 3-11 0-16" fill="none" stroke="rgba(165, 180, 252, 0.95)" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M56 31c-3-5-3-11 0-16" fill="none" stroke="rgba(165, 180, 252, 0.95)" stroke-width="1.8" stroke-linecap="round" />
+
+  <circle cx="32" cy="45" r="2.7" fill="rgba(129, 140, 248, 0.95)" />
+  <circle cx="26" cy="49" r="2" fill="rgba(129, 140, 248, 0.95)" />
+  <circle cx="38" cy="49" r="2" fill="rgba(129, 140, 248, 0.95)" />
+</svg>

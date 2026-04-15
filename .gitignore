@@ -4,6 +4,8 @@ venv/
 env/
 .env
 legacy/
+.pytest_cache/
+
 
 # Ignore Python cache files
 __pycache__/
