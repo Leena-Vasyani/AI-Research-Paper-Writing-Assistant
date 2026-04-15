@@ -3,6 +3,7 @@ research_env/
 venv/
 env/
 .env
+legacy/
 
 # Ignore Python cache files
 __pycache__/
