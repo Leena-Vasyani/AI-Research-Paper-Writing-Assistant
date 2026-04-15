@@ -16,7 +16,7 @@ export interface FormatResult {
   citationCount: number;
 }
 
-export interface FormatOptions {}
+export type FormatOptions = Record<string, unknown>;
 
 function renderMLAHeader(doc: ParsedDocument): string {
   const htmlParts: string[] = [];

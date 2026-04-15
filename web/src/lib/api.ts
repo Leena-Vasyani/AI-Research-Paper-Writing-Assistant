@@ -5,11 +5,17 @@ import type {
   ComprehensiveSummary,
   Draft,
   ExtractTextResult,
+  GitHubToIEEEResult,
   Paper,
   PlagiarismReport,
   PseudocodeResult,
   QueryResult,
   CitationReport,
+  RAGSession,
+  RAGSessionCreateResult,
+  RAGMessage,
+  RAGQueryResult,
+  RAGUploadResult,
 } from "./types";
 
 export const API_BASE =
@@ -217,5 +223,63 @@ export const api = {
     }>("/api/compile-pdf", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  // ── GitHub-to-IEEE ──────────────────────────────────────────────────
+
+  githubToIEEE: (payload: {
+    repo_url: string;
+    author?: string;
+    institution?: string;
+    max_files?: number;
+  }) =>
+    request<GitHubToIEEEResult>("/api/github-to-ieee", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // ── RAG Document Chat ───────────────────────────────────────────────
+
+  ragCreateSession: () =>
+    request<RAGSessionCreateResult>("/api/rag/sessions", {
+      method: "POST",
+    }),
+
+  ragListSessions: () => request<RAGSession[]>("/api/rag/sessions"),
+
+  ragUploadFiles: async (
+    sessionId: string,
+    files: File[],
+  ): Promise<RAGUploadResult> => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append("files", f));
+
+    const res = await fetch(
+      normalizePath(
+        API_BASE,
+        `/api/rag/upload?session_id=${encodeURIComponent(sessionId)}`,
+      ),
+      { method: "POST", body: formData },
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `Upload failed: ${res.status}`);
+    }
+    return res.json() as Promise<RAGUploadResult>;
+  },
+
+  ragQuery: (payload: { session_id: string; question: string }) =>
+    request<RAGQueryResult>("/api/rag/query", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  ragGetMessages: (sessionId: string) =>
+    request<RAGMessage[]>(`/api/rag/sessions/${sessionId}/messages`),
+
+  ragDeleteSession: (sessionId: string) =>
+    request<{ success: boolean }>(`/api/rag/sessions/${sessionId}`, {
+      method: "DELETE",
     }),
 };

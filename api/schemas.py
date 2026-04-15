@@ -163,3 +163,61 @@ class ExtractTextResponse(BaseModel):
     extension: str = ""
     warnings: List[str] = Field(default_factory=list)
 
+
+# ── GitHub-to-IEEE ────────────────────────────────────────────────────
+
+class GitHubToIEEERequest(BaseModel):
+    repo_url: str = Field(..., description="GitHub repository URL")
+    author: str = Field("", description="Author name for the paper")
+    institution: str = Field("", description="Institution / affiliation")
+    max_files: int = Field(40, ge=5, le=100, description="Maximum repo files to analyse")
+
+
+class GitHubToIEEEResponse(BaseModel):
+    success: bool = True
+    sections: Dict[str, str] = Field(default_factory=dict)
+    pdf_base64: str = ""
+    repo_name: str = ""
+    analysis: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
+# ── RAG Document Chat ─────────────────────────────────────────────────
+
+class RAGQueryRequest(BaseModel):
+    session_id: str = Field(..., description="Chat session ID")
+    question: str = Field(..., description="User question")
+
+
+class RAGQueryResponse(BaseModel):
+    answer: str = ""
+    sources: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class RAGSessionResponse(BaseModel):
+    session_id: str = ""
+    name: str = ""
+    created_at: str = ""
+
+
+class RAGSessionListItem(BaseModel):
+    id: str = ""
+    name: str = ""
+    created_at: str = ""
+    last_active: str = ""
+    document_count: int = 0
+
+
+class RAGMessageResponse(BaseModel):
+    role: str = ""
+    content: str = ""
+    sources: List[Dict[str, Any]] = Field(default_factory=list)
+    created_at: str = ""
+
+
+class RAGUploadResponse(BaseModel):
+    success: bool = True
+    processed: int = 0
+    chunks: int = 0
+    errors: List[str] = Field(default_factory=list)
+

@@ -119,7 +119,7 @@ export default function Home() {
               Live stats
             </div>
             <div className="mt-2 text-5xl font-semibold tracking-tight text-zinc-100">
-              5
+              7
             </div>
             <p className="mt-1 text-sm text-zinc-400">
               Core agents in active chain
@@ -127,7 +127,7 @@ export default function Home() {
           </div>
           <div>
             <div className="text-5xl font-semibold tracking-tight text-zinc-100">
-              4
+              6
             </div>
             <p className="mt-1 text-sm text-zinc-400">
               Dedicated creative workspaces
@@ -174,6 +174,8 @@ export default function Home() {
             <li>• Universal Formatter for publication layout control.</li>
             <li>• Text-to-Diagram for fast visual communication.</li>
             <li>• Code-to-Pseudocode for conference-ready algorithms.</li>
+            <li>• GitHub→IEEE for repository-to-paper generation.</li>
+            <li>• DocChat for RAG-powered document Q&A.</li>
           </ul>
           <Link
             href="/how-it-works"
