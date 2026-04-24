@@ -38,7 +38,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 # Database Models
 # ======================================================================
 
-_DB_DIR = Path(__file__).resolve().parent.parent / "data"
+# Keep persistent RAG data at the repository root `data/` directory.
+_DB_DIR = Path(__file__).resolve().parents[2] / "data"
 _DB_DIR.mkdir(parents=True, exist_ok=True)
 _DATABASE_URL = os.getenv(
     "RAG_DATABASE_URL",

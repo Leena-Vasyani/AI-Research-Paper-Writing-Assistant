@@ -2,7 +2,7 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone",
   reactCompiler: true,
   turbopack: {
     // Explicitly set workspace root to web/ so Turbopack doesn't pick up

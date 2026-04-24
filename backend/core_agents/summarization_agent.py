@@ -48,7 +48,7 @@ class PaperSummarizationAgent:
         print(f"🔄 Initializing summarization agent (quality-optimized)")
         
         if load_dotenv is not None:
-            project_root = Path(__file__).resolve().parents[1]
+            project_root = Path(__file__).resolve().parents[2]
             explicit_env = project_root / ".env"
             if explicit_env.exists():
                 load_dotenv(dotenv_path=str(explicit_env))

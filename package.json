@@ -1,4 +1,15 @@
 {
+  "name": "researchgen-workspace",
+  "private": true,
+  "scripts": {
+    "api:dev": "python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload",
+    "web:dev": "npm --prefix web run dev",
+    "web:lint": "npm --prefix web run lint",
+    "web:build": "npm --prefix web run build",
+    "docker:up": "docker compose -f infra/compose/docker-compose.yml up --build",
+    "docker:down": "docker compose -f infra/compose/docker-compose.yml down",
+    "docker:logs": "docker compose -f infra/compose/docker-compose.yml logs -f"
+  },
   "devDependencies": {
     "@types/node": "^25.0.10"
   }

@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode
+.vs
+.pytest_cache
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+web/.env.local
+web/node_modules
+web/.next
+node_modules

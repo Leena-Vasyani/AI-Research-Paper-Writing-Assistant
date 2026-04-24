@@ -1,0 +1,41 @@
+name: researchgen
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/backend.Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      API_TITLE: ResearchGen API
+      API_VERSION: 0.1.0
+      CORS_ORIGINS: http://localhost,http://localhost:80
+    volumes:
+      - ../../data:/app/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: /api
+    expose:
+      - "3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped

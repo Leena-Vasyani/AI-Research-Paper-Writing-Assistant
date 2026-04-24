@@ -4,14 +4,14 @@ import time
 from datetime import datetime
 
 # Import all agents
-from core_agents.query_agent import ScientificQueryAgent
-from core_agents.retrieval_agent import PaperRetrievalAgent
-from core_agents.summarization_agent import PaperSummarizationAgent
-from core_agents.training_data_manager import TrainingDataManager
-from core_agents.plagiarism_agent import PlagiarismDetectionAgent
-from core_agents.citation_agent import CitationAgent
-from fine_tuning.drafting_agent_trainer import auto_train_if_ready
-from fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
+from backend.core_agents.query_agent import ScientificQueryAgent
+from backend.core_agents.retrieval_agent import PaperRetrievalAgent
+from backend.core_agents.summarization_agent import PaperSummarizationAgent
+from backend.core_agents.training_data_manager import TrainingDataManager
+from backend.core_agents.plagiarism_agent import PlagiarismDetectionAgent
+from backend.core_agents.citation_agent import CitationAgent
+from backend.fine_tuning.drafting_agent_trainer import auto_train_if_ready
+from backend.fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
 
 # Page configuration
 st.set_page_config(

@@ -9,6 +9,8 @@ from io import BytesIO
 
 from PyPDF2 import PdfReader
 
+from backend.api.config import get_settings
+
 try:
     from groq import Groq
 except Exception:
@@ -64,11 +66,13 @@ from api.schemas import (
     RAGUploadResponse,
 )
 
-app = FastAPI(title="ResearchGen API", version="0.1.0")
+settings = get_settings()
+
+app = FastAPI(title=settings.api_title, version=settings.api_version)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
