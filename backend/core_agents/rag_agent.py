@@ -12,6 +12,7 @@ Production-grade document Q&A with:
 
 import os
 import io
+import re
 import uuid
 import json
 import math
@@ -45,6 +46,10 @@ _DATABASE_URL = os.getenv(
     "RAG_DATABASE_URL",
     f"sqlite:///{_DB_DIR / 'rag_sessions.db'}",
 )
+
+# Persistent vector-store directory so sessions survive server restarts.
+_STORE_DIR = Path(os.getenv("RAG_STORE_DIR", str(_DB_DIR / "rag_stores")))
+_STORE_DIR.mkdir(parents=True, exist_ok=True)
 
 _Base = declarative_base()
 _engine = create_engine(_DATABASE_URL, connect_args={"check_same_thread": False})
@@ -141,6 +146,90 @@ class RAGAgent:
         return self._embeddings
 
     # ------------------------------------------------------------------
+    # Persistence (so sessions survive server restarts)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _store_path(session_id: str) -> Path:
+        return _STORE_DIR / session_id
+
+    def _persist(self, session_id: str) -> None:
+        """Save this session's FAISS index + chunk corpus to disk."""
+        try:
+            path = self._store_path(session_id)
+            path.mkdir(parents=True, exist_ok=True)
+            store = self._vector_stores.get(session_id)
+            if store is not None:
+                store.save_local(str(path / "faiss"))
+            corpus_docs = self._bm25_data.get(session_id, {}).get("corpus_docs", [])
+            chunks = [
+                {"page_content": d.page_content, "metadata": d.metadata}
+                for d in corpus_docs
+            ]
+            with open(path / "chunks.json", "w", encoding="utf-8") as f:
+                json.dump(chunks, f)
+        except Exception as e:
+            print(f"   [!] Failed to persist RAG store for {session_id}: {e}")
+
+    def _ensure_loaded(self, session_id: str) -> bool:
+        """Load a session's FAISS + BM25 from disk if not already in memory."""
+        if session_id in self._vector_stores:
+            return True
+        faiss_dir = self._store_path(session_id) / "faiss"
+        if not faiss_dir.exists():
+            return False
+        try:
+            from langchain_community.vectorstores import FAISS
+            from langchain_core.documents import Document
+
+            embeddings = self._get_embeddings()
+            self._vector_stores[session_id] = FAISS.load_local(
+                str(faiss_dir), embeddings, allow_dangerous_deserialization=True
+            )
+            chunks_file = self._store_path(session_id) / "chunks.json"
+            if chunks_file.exists():
+                with open(chunks_file, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                docs = [
+                    Document(page_content=c["page_content"], metadata=c.get("metadata", {}))
+                    for c in raw
+                ]
+                self._bm25_data[session_id] = {}
+                self._rebuild_bm25(session_id, docs)
+            return True
+        except Exception as e:
+            print(f"   [!] Failed to load RAG store for {session_id}: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Follow-up question contextualization
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _contextualize_query(question: str, recent_history: List[Dict[str, Any]]) -> str:
+        """Expand a short / pronoun-y follow-up into a standalone retrieval query
+        by prepending the previous user turn. Cheap (no extra LLM call)."""
+        q = (question or "").strip()
+        if not recent_history:
+            return q
+        lowered = q.lower()
+        is_followup = len(q.split()) <= 6 or bool(
+            re.match(
+                r"^(it|its|they|them|that|this|these|those|he|she|"
+                r"what about|and |also|why|how|tell me more|explain|more)\b",
+                lowered,
+            )
+        )
+        if not is_followup:
+            return q
+        last_user = ""
+        for msg in reversed(recent_history):
+            if msg.get("role") == "user":
+                last_user = msg.get("content", "")
+                break
+        return f"{last_user} {q}".strip() if last_user else q
+
+    # ------------------------------------------------------------------
     # Session management
     # ------------------------------------------------------------------
 
@@ -222,6 +311,14 @@ class RAGAgent:
             # Clean up in-memory stores
             self._vector_stores.pop(session_id, None)
             self._bm25_data.pop(session_id, None)
+            # Clean up persisted store on disk
+            try:
+                import shutil
+                store_path = self._store_path(session_id)
+                if store_path.exists():
+                    shutil.rmtree(store_path, ignore_errors=True)
+            except Exception:
+                pass
             return True
         finally:
             db.close()
@@ -271,6 +368,9 @@ class RAGAgent:
         from langchain_core.documents import Document
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+        # Load any previously-persisted store so new uploads extend it.
+        self._ensure_loaded(session_id)
+
         all_docs: List[Document] = []
         processed = 0
         errors = []
@@ -304,9 +404,11 @@ class RAGAgent:
         )
         chunks = splitter.split_documents(all_docs)
 
-        # Enrich metadata with chunk index
+        # Enrich metadata with a globally-unique chunk id (avoids RRF id
+        # collisions across multiple uploads in the same session).
         for i, chunk in enumerate(chunks):
             chunk.metadata["chunk_index"] = i
+            chunk.metadata["chunk_id"] = uuid.uuid4().hex
             chunk.metadata["session_id"] = session_id
 
         # Build / extend FAISS vector store
@@ -323,6 +425,9 @@ class RAGAgent:
 
         # Build / rebuild BM25 index
         self._rebuild_bm25(session_id, chunks)
+
+        # Persist to disk so the session survives a server restart.
+        self._persist(session_id)
 
         # Update document count in DB
         db = _SessionLocal()
@@ -362,8 +467,26 @@ class RAGAgent:
             # Try to read as text
             return self._load_txt(file_path, filename)
 
+    @staticmethod
+    def _clean_pdf_text(text: str) -> str:
+        """Normalize extracted PDF text: de-hyphenate line breaks, collapse
+        whitespace, and join wrapped lines into coherent paragraphs."""
+        import re
+
+        if not text:
+            return ""
+        # Join words split across line breaks with a hyphen ("optimi-\nzation").
+        text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+        # Treat blank lines as paragraph breaks; single newlines as soft wraps.
+        text = re.sub(r"\n[ \t]*\n", " ", text)  # paragraph sep placeholder
+        text = re.sub(r"\n", " ", text)
+        text = text.replace(" ", "\n\n")
+        # Collapse runs of spaces.
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        return text.strip()
+
     def _load_pdf(self, file_path: str, filename: str) -> List:
-        """Load PDF using PyMuPDF for better extraction quality."""
+        """Load PDF using PyMuPDF with reading-order sort + text cleanup."""
         from langchain_core.documents import Document
 
         try:
@@ -371,9 +494,12 @@ class RAGAgent:
 
             doc = fitz.open(file_path)
             documents = []
-            for page_num in range(len(doc)):
+            total = len(doc)
+            for page_num in range(total):
                 page = doc[page_num]
-                text = page.get_text("text")
+                # sort=True follows visual reading order (helps multi-column papers)
+                raw = page.get_text("text", sort=True)
+                text = self._clean_pdf_text(raw)
                 if text.strip():
                     documents.append(
                         Document(
@@ -381,7 +507,7 @@ class RAGAgent:
                             metadata={
                                 "source": filename,
                                 "page": page_num + 1,
-                                "total_pages": len(doc),
+                                "total_pages": total,
                             },
                         )
                     )
@@ -394,7 +520,7 @@ class RAGAgent:
             reader = PdfReader(file_path)
             documents = []
             for i, page in enumerate(reader.pages):
-                text = page.extract_text() or ""
+                text = self._clean_pdf_text(page.extract_text() or "")
                 if text.strip():
                     documents.append(
                         Document(
@@ -475,6 +601,7 @@ class RAGAgent:
         Hybrid retrieval combining FAISS vector search + BM25 keyword search
         with Reciprocal Rank Fusion (RRF).
         """
+        self._ensure_loaded(session_id)
         results = []
 
         # --- FAISS vector search ---
@@ -516,14 +643,14 @@ class RAGAgent:
 
         # Add vector results with RRF scores
         for rank, (doc, score) in enumerate(vector_results):
-            doc_id = f"{doc.metadata.get('source', '')}_{doc.metadata.get('chunk_index', rank)}"
+            doc_id = doc.metadata.get("chunk_id") or f"{doc.metadata.get('source', '')}_{doc.metadata.get('chunk_index', rank)}"
             rrf_score = 1.0 / (rrf_constant + rank + 1)
             doc_scores[doc_id] = doc_scores.get(doc_id, 0) + rrf_score
             doc_map[doc_id] = doc
 
         # Add BM25 results with RRF scores
         for rank, (doc, score) in enumerate(bm25_results):
-            doc_id = f"{doc.metadata.get('source', '')}_{doc.metadata.get('chunk_index', rank)}"
+            doc_id = doc.metadata.get("chunk_id") or f"{doc.metadata.get('source', '')}_{doc.metadata.get('chunk_index', rank)}"
             rrf_score = 1.0 / (rrf_constant + rank + 1)
             doc_scores[doc_id] = doc_scores.get(doc_id, 0) + rrf_score
             if doc_id not in doc_map:
@@ -559,8 +686,8 @@ class RAGAgent:
 
         Returns dict with keys: answer, sources
         """
-        # Check if session has documents
-        if session_id not in self._vector_stores:
+        # Load the persisted store if it isn't in memory (e.g. after restart).
+        if not self._ensure_loaded(session_id):
             return {
                 "answer": "Please upload documents first before asking questions.",
                 "sources": [],
@@ -570,8 +697,11 @@ class RAGAgent:
         history = self.get_messages(session_id)
         recent_history = history[-6:] if len(history) > 6 else history
 
+        # Expand short / follow-up questions into a standalone retrieval query.
+        retrieval_query = self._contextualize_query(question, recent_history)
+
         # Retrieve relevant chunks
-        retrieved = self._retrieve_hybrid(session_id, question, k=6)
+        retrieved = self._retrieve_hybrid(session_id, retrieval_query, k=6)
 
         if not retrieved:
             answer = self._chat(
@@ -656,5 +786,7 @@ Provide a comprehensive, well-structured answer:"""
     # ------------------------------------------------------------------
 
     def session_has_documents(self, session_id: str) -> bool:
-        """Check if a session has ingested documents."""
-        return session_id in self._vector_stores
+        """Check if a session has ingested documents (in memory or on disk)."""
+        if session_id in self._vector_stores:
+            return True
+        return (self._store_path(session_id) / "faiss").exists()

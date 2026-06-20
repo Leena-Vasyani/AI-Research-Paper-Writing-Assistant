@@ -272,6 +272,56 @@ PROJECT_TYPE, ARCHITECTURE, INNOVATION, TARGET_DOMAIN, SCALABILITY
         )
         return FAISS.from_documents(chunks, embeddings)
 
+    @staticmethod
+    def _clean_text(text: str, section_name: str = "") -> str:
+        """Strip LLM markdown/preamble artifacts so output is clean prose.
+
+        Removes code fences, "Here is the…" preambles, markdown emphasis/headers,
+        a leading line that merely repeats the section name, and normalizes
+        whitespace into blank-line-separated paragraphs.
+        """
+        if not text:
+            return ""
+        t = text.strip()
+
+        # Strip surrounding code fences
+        t = re.sub(r"^```[a-zA-Z]*\s*\n?", "", t)
+        t = re.sub(r"\n?```\s*$", "", t)
+
+        # Drop a leading conversational preamble ("Sure, here is the abstract:")
+        t = re.sub(
+            r"^(?:sure|certainly|of course|here(?:'s| is)|below is|the following is)\b[^\n]*[:\.]\s*\n+",
+            "",
+            t,
+            flags=re.IGNORECASE,
+        )
+
+        # Drop a leading line that just repeats the section name / a markdown header
+        if section_name:
+            t = re.sub(
+                rf"^\s*#{{0,6}}\s*(?:[IVX]+\.?\s*)?{re.escape(section_name)}\s*:?\s*\n+",
+                "",
+                t,
+                flags=re.IGNORECASE,
+            )
+        t = re.sub(r"^\s*#{1,6}\s*[^\n]*\n+", "", t)  # any other leading header line
+
+        # Remove markdown emphasis / inline code markers
+        t = re.sub(r"\*\*(.+?)\*\*", r"\1", t, flags=re.DOTALL)
+        t = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"\1", t, flags=re.DOTALL)
+        t = re.sub(r"__(.+?)__", r"\1", t, flags=re.DOTALL)
+        t = re.sub(r"`([^`]+)`", r"\1", t)
+
+        # Strip remaining markdown header markers and bullet markers
+        t = re.sub(r"^\s*#{1,6}\s*", "", t, flags=re.MULTILINE)
+        t = re.sub(r"^\s*[-*+]\s+", "• ", t, flags=re.MULTILINE)
+
+        # Collapse excess blank lines and trim wrapping quotes
+        t = re.sub(r"\n{3,}", "\n\n", t).strip()
+        if len(t) > 1 and t[0] in "\"'" and t[-1] in "\"'":
+            t = t[1:-1].strip()
+        return t
+
     def generate_ieee_paper(
         self,
         repo_data: Dict[str, Any],
@@ -289,18 +339,25 @@ Domain: {analysis.get('TARGET_DOMAIN', '')}
 Technologies: {', '.join(analysis.get('KEY_TECHNOLOGIES', [])[:3])}
 
 Return only the title, no quotes or explanation."""
-        sections["title"] = self._chat(
-            title_prompt,
-            model="llama-3.1-8b-instant",
-            max_tokens=80,
-            temperature=0.2,
-        ).strip().strip('"').strip("'")
+        sections["title"] = self._clean_text(
+            self._chat(
+                title_prompt,
+                model="llama-3.1-8b-instant",
+                max_tokens=80,
+                temperature=0.2,
+            )
+        ).replace("\n", " ").strip()
 
         def gen_section(name: str, query: str, words: int, k: int = 4) -> str:
             docs = vector_db.similarity_search(query, k=k)
             context = "\n\n".join(d.page_content for d in docs)
             prompt = f"""Write an IEEE-style {name} section (~{words} words).
-Use formal academic language. Do not include section headers.
+
+Formatting rules (IMPORTANT):
+- Output plain academic prose only — NO markdown, asterisks, backticks, or headings.
+- Do NOT repeat the section name or add a header.
+- Do NOT begin with preamble like "Here is" or "Sure".
+- Separate paragraphs with a blank line.
 
 Project analysis:
 - Purpose: {analysis.get('SYSTEM_PURPOSE', '')}
@@ -310,11 +367,14 @@ Project analysis:
 Source code context:
 {context[:3000]}
 """
-            return self._chat(
-                prompt,
-                model="llama-3.3-70b-versatile",
-                max_tokens=words * 2,
-                temperature=0.25,
+            return self._clean_text(
+                self._chat(
+                    prompt,
+                    model="llama-3.3-70b-versatile",
+                    max_tokens=words * 2,
+                    temperature=0.25,
+                ),
+                section_name=name,
             )
 
         sections["abstract"] = gen_section(
@@ -344,15 +404,17 @@ Source code context:
         refs_prompt = f"""Generate 10 IEEE-style references relevant to:
 {sections['title']}
 
-Format each reference as:
+Format each reference on its own line as:
 [N] Author(s), "Title," Journal/Conference, vol. X, no. Y, pp. ZZ-ZZ, Year.
 
-Return only the references, no other text."""
-        sections["references"] = self._chat(
-            refs_prompt,
-            model="llama-3.3-70b-versatile",
-            max_tokens=600,
-            temperature=0.2,
+Output plain text only — no markdown, no bullets, no preamble. Return only the references."""
+        sections["references"] = self._clean_text(
+            self._chat(
+                refs_prompt,
+                model="llama-3.3-70b-versatile",
+                max_tokens=600,
+                temperature=0.2,
+            )
         )
 
         return sections
@@ -427,21 +489,32 @@ Return only the references, no other text."""
             ("References", "references"),
         ]
 
+        def _escape(s: str) -> str:
+            return (
+                s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
+
         for heading, key in section_order:
             text = sections.get(key, "")
             if not text:
                 continue
             story.append(Paragraph(heading, heading_style))
-            for paragraph in text.split("\n"):
-                paragraph = paragraph.strip()
-                if paragraph:
-                    # Escape special XML characters for reportlab
-                    paragraph = (
-                        paragraph.replace("&", "&amp;")
-                        .replace("<", "&lt;")
-                        .replace(">", "&gt;")
+
+            if key == "references":
+                # One reference per line.
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line:
+                        story.append(Paragraph(_escape(line), body))
+            else:
+                # Split into paragraphs on blank lines; join wrapped lines.
+                for block in re.split(r"\n\s*\n", text):
+                    paragraph = " ".join(
+                        ln.strip() for ln in block.splitlines() if ln.strip()
                     )
-                    story.append(Paragraph(paragraph, body))
+                    if paragraph:
+                        story.append(Paragraph(_escape(paragraph), body))
+                        story.append(Spacer(1, 6))
             story.append(Spacer(1, 12))
 
         doc.build(story)
