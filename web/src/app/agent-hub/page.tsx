@@ -250,8 +250,12 @@ export default function AgentHubPage() {
         subtopics: queryResult?.subtopics,
         sources: retrieveSources,
       });
-      setPapers(result);
-      setPapersInput(pretty(result));
+      // /api/retrieve returns { papers, domain, source_status, ... }
+      const retrievedPapers = Array.isArray(result)
+        ? result
+        : result?.papers ?? [];
+      setPapers(retrievedPapers);
+      setPapersInput(pretty(retrievedPapers));
       if (!keywordsInput.trim()) {
         setKeywordsInput(payloadKeywords.join(", "));
       }

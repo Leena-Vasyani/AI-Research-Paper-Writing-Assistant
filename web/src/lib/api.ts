@@ -10,6 +10,7 @@ import type {
   PlagiarismReport,
   PseudocodeResult,
   QueryResult,
+  RetrieveResponse,
   CitationReport,
   RAGSession,
   RAGSessionCreateResult,
@@ -83,7 +84,7 @@ export const api = {
     subtopics?: Record<string, string[]>;
     sources?: string[];
   }) =>
-    request<Paper[]>("/api/retrieve", {
+    request<RetrieveResponse>("/api/retrieve", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

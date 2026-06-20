@@ -68,9 +68,15 @@ def query_agent():
 
 
 @lru_cache(maxsize=1)
-def retrieval_agent():
-    from backend.core_agents.retrieval_agent import PaperRetrievalAgent
-    return PaperRetrievalAgent(keyword_agent=keyword_agent())
+def search_agent():
+    from backend.core_agents.search_agent import SearchAgent
+    return SearchAgent(keyword_agent=keyword_agent())
+
+
+@lru_cache(maxsize=1)
+def topic_mining_agent():
+    from backend.core_agents.topic_mining_agent import TopicMiningAgent
+    return TopicMiningAgent()
 
 
 @lru_cache(maxsize=1)

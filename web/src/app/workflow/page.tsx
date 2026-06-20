@@ -241,7 +241,8 @@ export default function WorkflowPage() {
         use_multi_query: true,
         subtopics: queryResult?.subtopics,
       });
-      setPapers(result);
+      // /api/retrieve returns { papers, domain, source_status, ... }
+      setPapers(Array.isArray(result) ? result : result?.papers ?? []);
       setSummary(null);
       setDraft(null);
       setPlagiarism(null);

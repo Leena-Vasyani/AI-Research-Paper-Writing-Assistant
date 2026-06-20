@@ -25,6 +25,7 @@ export type RetrieveResponse = {
   total: number;
   query: string;
   warnings?: string[];
+  citation_graph?: Record<string, unknown>;
 };
 
 export type KeywordItem = {

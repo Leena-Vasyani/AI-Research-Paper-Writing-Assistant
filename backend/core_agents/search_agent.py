@@ -9,12 +9,14 @@ Sources:
   - PubMed (health/medicine/biology) — free NCBI E-utilities
   - OpenAlex (general academic)
   - Semantic Scholar (general academic + citation counts)
+  - CrossRef (cross-discipline metadata + reference lists for the Citation Graph)
 
 Features:
   - Domain classifier routes health → PubMed, CS → arXiv, general → all
   - Parallel source fetching with per-source status tracking
-  - Cross-source deduplication by URL and DOI
-  - Citation counts from Semantic Scholar, sorted by impact
+  - Cross-source deduplication by URL and DOI (+ optional semantic near-dup merge)
+  - Citation counts from Semantic Scholar/CrossRef/OpenAlex, sorted by impact
+  - Emits a shared Citation Graph consumed by the Outline and Review agents
   - Two-tier caching (memory + optional Redis)
   - Connection pooling and zero artificial delays
 """
@@ -31,6 +33,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import requests as _requests
 
 from backend.core_agents.cache import retrieval_cache
+from backend.core_agents.knowledge.citation_graph import CitationGraph
 
 try:
     from backend.core_agents.keyword_agent import KeywordExtractionAgent
@@ -43,6 +46,33 @@ except Exception:
     arxiv = None  # type: ignore[assignment]
 
 import os
+
+
+# ---------------------------------------------------------------------------
+# Optional semantic embedding model (lazy, shared) for near-dup merge + relevance.
+# Gracefully degrades to the lexical path if sentence-transformers is unavailable.
+# ---------------------------------------------------------------------------
+
+_EMBED_MODEL: Any = None
+_EMBED_DISABLED = False
+_EMBED_MODEL_NAME = os.getenv("SEARCH_EMBED_MODEL", "all-MiniLM-L6-v2")
+
+
+def _get_embed_model() -> Any:
+    """Lazily load (and cache) the sentence-transformer; None if unavailable."""
+    global _EMBED_MODEL, _EMBED_DISABLED
+    if _EMBED_DISABLED:
+        return None
+    if _EMBED_MODEL is not None:
+        return _EMBED_MODEL
+    try:
+        from sentence_transformers import SentenceTransformer
+        _EMBED_MODEL = SentenceTransformer(_EMBED_MODEL_NAME)
+    except Exception as exc:  # noqa: BLE001 - optional dependency
+        print(f"   [!] Semantic search disabled (embeddings unavailable): {exc}")
+        _EMBED_DISABLED = True
+        _EMBED_MODEL = None
+    return _EMBED_MODEL
 
 # ---------------------------------------------------------------------------
 # Domain classifier (keyword-based, zero LLM calls)
@@ -92,10 +122,13 @@ def _classify_domain(query: str) -> str:
     return "general"
 
 
-class PaperRetrievalAgent:
+class SearchAgent:
     """
-    Real-time paper retrieval with parallel sources, caching, and
-    optional keyword-agent integration for query enrichment.
+    Search Agent — real-time literature discovery across multiple scholarly
+    sources with parallel fetching, caching, cross-source + semantic dedup,
+    citation-aware ranking, and Citation Graph emission.
+
+    (Formerly ``PaperRetrievalAgent``; the old name remains as an alias.)
     """
 
     def __init__(
@@ -103,14 +136,19 @@ class PaperRetrievalAgent:
         keyword_agent: Optional[KeywordExtractionAgent] = None,
         min_relevance_score: float = 0.5,
         min_year: int = 2020,
+        use_semantic: bool = True,
     ):
         self.keyword_agent = keyword_agent
         self.min_relevance_score = min_relevance_score
         self.min_year = min_year
+        self.use_semantic = use_semantic
         self.http_timeout = 12  # reduced from 20s
         self.openalex_api_key = os.getenv("OPENALEX_API_KEY", "").strip()
         self.openalex_email = os.getenv("OPENALEX_EMAIL", "").strip()
         self.semantic_scholar_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+        self.crossref_mailto = (
+            os.getenv("CROSSREF_MAILTO", "").strip() or self.openalex_email or ""
+        )
 
         # Reusable HTTP session for connection pooling
         self._session = _requests.Session()
@@ -524,6 +562,163 @@ class PaperRetrievalAgent:
         return out
 
     # ------------------------------------------------------------------
+    # CrossRef (cross-discipline metadata + reference lists)
+    # ------------------------------------------------------------------
+
+    def _retrieve_crossref(
+        self,
+        keywords: List[str],
+        max_results: int,
+        synonyms: Optional[Dict[str, List[str]]] = None,
+    ) -> List[Dict]:
+        """Search CrossRef. Uniquely exposes reference lists used to wire the
+        Citation Graph (other sources rarely return references)."""
+        query = " ".join([k for k in keywords if k and k.strip()][:6])
+        if not query:
+            return []
+        url = "https://api.crossref.org/works"
+        params: Dict[str, Any] = {
+            "query.bibliographic": query,
+            "rows": min(max_results * 2, 40),
+            "select": "DOI,title,author,abstract,issued,container-title,"
+                      "is-referenced-by-count,URL,reference",
+            "sort": "relevance",
+        }
+        if self.crossref_mailto:
+            params["mailto"] = self.crossref_mailto
+
+        papers: List[Dict] = []
+        try:
+            resp = self._session.get(url, params=params, timeout=self.http_timeout)
+            resp.raise_for_status()
+            items = (resp.json().get("message") or {}).get("items", [])
+            for item in items:
+                title_list = item.get("title") or []
+                title = (title_list[0] if title_list else "").strip()
+                if not title:
+                    continue
+
+                authors = []
+                for auth in item.get("author", [])[:6]:
+                    name = " ".join(
+                        p for p in [auth.get("given", ""), auth.get("family", "")] if p
+                    ).strip()
+                    if name:
+                        authors.append(name)
+
+                issued = (item.get("issued") or {}).get("date-parts") or [[None]]
+                year = issued[0][0] if issued and issued[0] else None
+                published = f"{year}-01-01" if year else ""
+
+                container = item.get("container-title") or []
+                venue = container[0] if container else "crossref"
+
+                # Reference list (DOIs) → consumed by CitationGraph
+                references = [
+                    {"DOI": ref.get("DOI")}
+                    for ref in (item.get("reference") or [])
+                    if isinstance(ref, dict) and ref.get("DOI")
+                ]
+
+                abstract = item.get("abstract") or ""
+                # CrossRef abstracts are JATS XML; strip tags for plain text
+                if abstract:
+                    abstract = re.sub(r"<[^>]+>", " ", abstract).strip()
+
+                papers.append({
+                    "title": title,
+                    "authors": authors,
+                    "authors_str": ", ".join(authors[:3]) if authors else "Unknown Author",
+                    "abstract": abstract,
+                    "published": published,
+                    "pdf_url": "",
+                    "entry_id": item.get("DOI", ""),
+                    "categories": [venue],
+                    "primary_category": venue,
+                    "query_used": query,
+                    "retrieved_at": datetime.now().isoformat(),
+                    "source": "crossref",
+                    "doi": item.get("DOI", ""),
+                    "url": item.get("URL", ""),
+                    "citations": item.get("is-referenced-by-count", 0) or 0,
+                    "references": references,
+                })
+                if len(papers) >= max_results:
+                    break
+        except Exception as e:
+            print(f"   [!] CrossRef retrieval failed: {e}")
+        return papers
+
+    # ------------------------------------------------------------------
+    # Semantic helpers (optional — degrade gracefully without embeddings)
+    # ------------------------------------------------------------------
+
+    def _semantic_dedup(self, papers: List[Dict], threshold: float = 0.92) -> List[Dict]:
+        """Merge near-duplicate papers whose titles are semantically ~identical
+        (e.g. preprint vs published), keeping the more-cited copy."""
+        if not self.use_semantic or len(papers) < 2:
+            return papers
+        model = _get_embed_model()
+        if model is None:
+            return papers
+        try:
+            from sentence_transformers import util as _st_util
+            titles = [p.get("title", "") for p in papers]
+            emb = model.encode(titles, convert_to_tensor=True, normalize_embeddings=True)
+            sim = _st_util.cos_sim(emb, emb)
+            kept: List[int] = []
+            dropped: Set[int] = set()
+            for i in range(len(papers)):
+                if i in dropped:
+                    continue
+                kept.append(i)
+                for j in range(i + 1, len(papers)):
+                    if j in dropped:
+                        continue
+                    if float(sim[i][j]) >= threshold:
+                        # keep whichever has more citations; drop the other
+                        if papers[j].get("citations", 0) > papers[i].get("citations", 0):
+                            dropped.add(i)
+                            kept[-1] = j
+                        else:
+                            dropped.add(j)
+            return [papers[i] for i in sorted(set(kept) - dropped)]
+        except Exception as exc:  # noqa: BLE001
+            print(f"   [!] Semantic dedup skipped: {exc}")
+            return papers
+
+    def _semantic_relevance(self, papers: List[Dict], query_text: str) -> None:
+        """Blend a semantic similarity signal into each paper's relevance_score
+        (in place). No-op if embeddings are unavailable."""
+        if not self.use_semantic or not papers:
+            return
+        model = _get_embed_model()
+        if model is None:
+            return
+        try:
+            from sentence_transformers import util as _st_util
+            docs = [f"{p.get('title', '')}. {p.get('abstract', '')}"[:512] for p in papers]
+            q_emb = model.encode([query_text], convert_to_tensor=True, normalize_embeddings=True)
+            d_emb = model.encode(docs, convert_to_tensor=True, normalize_embeddings=True)
+            sims = _st_util.cos_sim(q_emb, d_emb)[0]
+            for paper, sim in zip(papers, sims):
+                lexical = float(paper.get("relevance_score", 0.0))
+                semantic = max(0.0, float(sim))
+                # 60% lexical / 40% semantic blend
+                paper["relevance_score"] = round(0.6 * lexical + 0.4 * semantic, 4)
+                paper["semantic_score"] = round(semantic, 4)
+        except Exception as exc:  # noqa: BLE001
+            print(f"   [!] Semantic relevance skipped: {exc}")
+
+    # ------------------------------------------------------------------
+    # Citation Graph
+    # ------------------------------------------------------------------
+
+    def build_citation_graph(self, papers: List[Dict]) -> Dict[str, Any]:
+        """Build the shared Citation Graph from retrieved papers."""
+        return CitationGraph.from_papers(papers).to_dict()
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -577,11 +772,11 @@ class PaperRetrievalAgent:
         if sources:
             active_sources = [s.lower() for s in sources]
         elif resolved_domain == "health":
-            active_sources = ["pubmed", "semantic_scholar"]
+            active_sources = ["pubmed", "semantic_scholar", "crossref"]
         elif resolved_domain == "cs":
-            active_sources = ["arxiv", "semantic_scholar"]
+            active_sources = ["arxiv", "semantic_scholar", "crossref"]
         else:
-            active_sources = ["arxiv", "pubmed", "openalex", "semantic_scholar"]
+            active_sources = ["arxiv", "pubmed", "openalex", "semantic_scholar", "crossref"]
 
         # --- Cache lookup ---
         cache_key = self._make_cache_key(keywords + [resolved_domain], max_results, active_sources)
@@ -596,6 +791,7 @@ class PaperRetrievalAgent:
             "openalex": self._retrieve_openalex,
             "semantic_scholar": self._retrieve_semantic_scholar,
             "pubmed": self._retrieve_pubmed,
+            "crossref": self._retrieve_crossref,
         }
 
         # --- Source status tracker ---
@@ -662,18 +858,20 @@ class PaperRetrievalAgent:
                 seen_dois.add(doi)
             unique_candidates.append(paper)
 
-        # --- Score, filter, rank ---
-        papers: List[Dict] = []
-        for paper in unique_candidates:
-            relevance_score = self.calculate_relevance_score(paper, keywords)
-            paper["relevance_score"] = relevance_score
+        # --- Semantic near-duplicate merge (preprint vs published, etc.) ---
+        unique_candidates = self._semantic_dedup(unique_candidates)
 
+        # --- Lexical score + recency filter ---
+        scored: List[Dict] = []
+        for paper in unique_candidates:
+            paper["relevance_score"] = self.calculate_relevance_score(paper, keywords)
             if paper.get("published") and not self.is_recent_paper(paper["published"]):
                 continue
-            if relevance_score < self.min_relevance_score:
-                continue
+            scored.append(paper)
 
-            papers.append(paper)
+        # --- Blend in semantic relevance (in place), then quality filter ---
+        self._semantic_relevance(scored, query_text)
+        papers = [p for p in scored if float(p.get("relevance_score", 0)) >= self.min_relevance_score]
 
         # Sort by relevance descending, then citations descending
         papers.sort(
@@ -682,15 +880,25 @@ class PaperRetrievalAgent:
         )
         papers = papers[:max_results]
 
+        # --- Attach per-paper provenance (traceability) ---
+        for paper in papers:
+            paper["provenance"] = {
+                "source": paper.get("source", ""),
+                "query_used": paper.get("query_used", query_text),
+                "retrieved_at": paper.get("retrieved_at", ""),
+                "doi": paper.get("doi", ""),
+                "url": paper.get("url", ""),
+            }
+
         elapsed = int((datetime.now().timestamp() - start_time) * 1000)
         print(f"   [OK] Retrieval complete: {len(papers)} papers in {elapsed}ms")
 
         # --- Build warnings ---
         warnings: List[str] = []
         expected = {
-            "health": ["pubmed", "semantic_scholar"],
-            "cs": ["arxiv", "semantic_scholar"],
-            "general": ["arxiv", "pubmed", "openalex", "semantic_scholar"],
+            "health": ["pubmed", "semantic_scholar", "crossref"],
+            "cs": ["arxiv", "semantic_scholar", "crossref"],
+            "general": ["arxiv", "pubmed", "openalex", "semantic_scholar", "crossref"],
         }.get(resolved_domain, active_sources)
         for src in expected:
             status = source_status.get(src, "skipped")
@@ -705,6 +913,7 @@ class PaperRetrievalAgent:
             "source_status": source_status,
             "total": len(papers),
             "query": query_text,
+            "citation_graph": self.build_citation_graph(papers),
         }
         if warnings:
             result["warnings"] = warnings
@@ -749,9 +958,13 @@ class PaperRetrievalAgent:
         return hashlib.sha256(f"{payload}:{max_results}:{src}".encode()).hexdigest()[:32]
 
 
+# Backwards-compatible alias (legacy imports expect ``PaperRetrievalAgent``).
+PaperRetrievalAgent = SearchAgent
+
+
 # Test function
 if __name__ == "__main__":
-    agent = PaperRetrievalAgent(min_relevance_score=0.5, min_year=2020)
+    agent = SearchAgent(min_relevance_score=0.5, min_year=2020)
     test_keywords = ["language models", "healthcare", "clinical applications"]
 
     print("Testing Paper Retrieval (parallel, cached)...")

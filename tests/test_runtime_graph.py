@@ -27,12 +27,14 @@ class _FakeQueryAgent:
         }
 
 
-class _FakeRetrievalAgent:
+class _FakeSearchAgent:
     def retrieve_papers_multi_query(self, keywords, subtopics, max_results=5):
-        return {"papers": [{"title": "P1", "abstract": "a"}], "warnings": []}
+        return {"papers": [{"title": "P1", "abstract": "a"}], "warnings": [],
+                "citation_graph": {"nodes": [], "edges": [], "stats": {}}}
 
     def retrieve_papers(self, keywords, max_results=5):
-        return {"papers": [{"title": "P1", "abstract": "a"}], "warnings": []}
+        return {"papers": [{"title": "P1", "abstract": "a"}], "warnings": [],
+                "citation_graph": {"nodes": [], "edges": [], "stats": {}}}
 
 
 class _FakeSummarizer:
@@ -61,7 +63,7 @@ class RuntimeGraphTest(unittest.TestCase):
         # Patch the agent symbols bound inside each node module.
         self._patches = [
             (search_mod, "query_agent", lambda: _FakeQueryAgent()),
-            (search_mod, "retrieval_agent", lambda: _FakeRetrievalAgent()),
+            (search_mod, "search_agent", lambda: _FakeSearchAgent()),
             (drafting_mod, "summarization_agent", lambda: _FakeSummarizer()),
             (drafting_mod, "drafting_agent", lambda: _FakeDrafter()),
             (review_mod, "plagiarism_agent", lambda: _FakePlagiarismCritical()),
