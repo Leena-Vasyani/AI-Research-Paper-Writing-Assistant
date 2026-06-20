@@ -69,8 +69,13 @@ class _FakeReviewCritical:
 
 
 class _FakeCitation:
-    def add_citations_to_draft(self, sections, papers, plagiarism_results=None, citation_style="ieee"):
-        return {"cited_draft": sections, "references": ["[1] ref"]}
+    def ground_draft(self, sections, papers, citation_graph=None, citation_style="ieee"):
+        return {
+            "cited_draft": sections,
+            "references": ["[1] ref"],
+            "grounding": {"total_claims": 0, "grounded": 0, "blocked": [],
+                          "grounded_ratio": 1.0, "export_ready": True},
+        }
 
 
 class RuntimeGraphTest(unittest.TestCase):

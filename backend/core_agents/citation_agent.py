@@ -623,6 +623,88 @@ class CitationAgent:
         report += "=" * 80 + "\n"
         return report
 
+    # ------------------------------------------------------------------
+    # Grounding gate (PDR §11): factual / numeric / comparison claims must
+    # resolve provenance against the corpus / Citation Graph before export.
+    # ------------------------------------------------------------------
+
+    # numeric or benchmark/comparison claims are the ones that MUST be grounded
+    _NUM_RE = re.compile(r"\b\d+(?:\.\d+)?\s*%?\b")
+    _COMPARE_RE = re.compile(
+        r"\b(outperform\w*|state[- ]of[- ]the[- ]art|significantly|superior|best|"
+        r"better than|improv\w*|achiev\w*|surpass\w*|highest|lowest|fastest|"
+        r"baseline|benchmark|accuracy|precision|recall|f1)\b",
+        re.IGNORECASE,
+    )
+    _HAS_CITATION_RE = re.compile(r"\[\d+\]|\(\d{4}\)|et al\.")
+
+    def _is_factual_claim(self, sentence: str) -> bool:
+        """A claim that requires grounding: contains a number or a
+        benchmark/comparison term (per PDR §11)."""
+        return bool(self._NUM_RE.search(sentence) or self._COMPARE_RE.search(sentence))
+
+    def ground_draft(
+        self,
+        draft_sections: Dict[str, str],
+        retrieved_papers: List[Dict],
+        citation_graph: Dict = None,
+        citation_style: str = "ieee",
+        min_relevance: float = 0.05,
+    ) -> Dict:
+        """Citation grounding gate.
+
+        Attaches citations (via ``add_citations_to_draft``) and audits every
+        factual/numeric/comparison claim for provenance. Claims that cannot be
+        matched to a source are flagged as *blocked* (export not ready) so the
+        pipeline can route them back for revision instead of exporting
+        unsupported assertions.
+
+        Returns the standard citation result plus a ``grounding`` report.
+        """
+        # 1. Attach citations using the existing matcher.
+        citation_result = self.add_citations_to_draft(
+            draft_sections, retrieved_papers, citation_style=citation_style
+        )
+
+        # 2. Audit factual claims for provenance.
+        total_claims = 0
+        grounded = 0
+        blocked: List[Dict] = []
+
+        for section_name, section_text in (draft_sections or {}).items():
+            if section_name.lower() == "references" or not section_text:
+                continue
+            for sentence in re.split(r"(?<=[.!?])\s+", section_text.strip()):
+                s = sentence.strip()
+                if len(s.split()) < 4 or not self._is_factual_claim(s):
+                    continue
+                total_claims += 1
+                if self._HAS_CITATION_RE.search(s):
+                    grounded += 1
+                    continue
+                matches = self.find_relevant_citations(s, retrieved_papers)
+                top = matches[0] if matches else None
+                relevance = (top or {}).get("relevance", top.get("relevance_score", 0.0)) if top else 0.0
+                if top and float(relevance or 0.0) >= min_relevance:
+                    grounded += 1
+                else:
+                    blocked.append({
+                        "section": section_name,
+                        "claim": s[:200],
+                        "reason": "no supporting source found",
+                    })
+
+        grounded_ratio = round(grounded / total_claims, 3) if total_claims else 1.0
+        citation_result["grounding"] = {
+            "total_claims": total_claims,
+            "grounded": grounded,
+            "blocked": blocked,
+            "grounded_ratio": grounded_ratio,
+            "export_ready": len(blocked) == 0,
+            "citation_graph_nodes": len((citation_graph or {}).get("nodes", [])),
+        }
+        return citation_result
+
 
 # Test function
 if __name__ == "__main__":

@@ -278,3 +278,26 @@ class RAGUploadResponse(BaseModel):
     chunks: int = 0
     errors: List[str] = Field(default_factory=list)
 
+
+# ---------------------------------------------------------------------------
+# Multi-agent pipeline (LangGraph runtime)
+# ---------------------------------------------------------------------------
+
+
+class PipelineRunRequest(BaseModel):
+    topic: str = Field(..., description="Research topic / query")
+    target_venue: str = Field("IEEE", description="Target venue: IEEE / ACM / ...")
+    output_type: str = Field("research_paper", description="research_paper / survey / report")
+    constraints: Dict[str, Any] = Field(default_factory=dict,
+                                        description="max_results, citation_style, top_keywords, ...")
+    raw_materials: Dict[str, Any] = Field(default_factory=dict,
+                                          description="notes, logs, figures, latex_template")
+    max_revisions: int = Field(2, ge=0, le=5)
+    review_threshold: float = Field(7.0, ge=0.0, le=10.0)
+
+
+class PipelineStageRequest(BaseModel):
+    stage: str = Field(..., description="search|topic_mining|outline|drafting|review|citation|formatter")
+    state: Dict[str, Any] = Field(default_factory=dict,
+                                  description="Accumulated pipeline state to run the stage on")
+

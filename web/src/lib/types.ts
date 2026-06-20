@@ -18,6 +18,73 @@ export type Paper = {
   [key: string]: unknown;
 };
 
+// ── Multi-agent pipeline (LangGraph runtime) ──────────────────────────────
+
+export type BlueprintSection = {
+  name: string;
+  role: string;
+  goal?: string;
+  target_words?: number;
+  subsections?: { name: string; cues?: string[]; target_words?: number }[];
+  citation_hints?: { claim: string; suggested_sources: string[] }[];
+  visualization_directives?: { type: string; description: string }[];
+};
+
+export type PipelineBlueprint = {
+  topic?: string;
+  title_hint?: string;
+  target_venue?: string;
+  output_type?: string;
+  sections?: BlueprintSection[];
+  themes?: string[];
+  gaps?: string[];
+  lit_review?: { macro: string; micro: string };
+  meta?: Record<string, unknown>;
+};
+
+export type PipelineReview = {
+  scores?: Record<string, number>;
+  mean_score?: number;
+  has_critical_issues?: boolean;
+  major_concerns?: string[];
+  recommendation?: string;
+  unsupported_claims?: { section: string; claim: string; severity: string }[];
+  method?: string;
+};
+
+export type PipelineFinalDocument = {
+  title?: string;
+  output_type?: string;
+  target_venue?: string;
+  sections?: Record<string, string>;
+  references?: string[];
+  figures?: { section: string; type: string; description: string }[];
+  formats?: { latex?: string; markdown?: string; docx_available?: boolean };
+  export_ready?: boolean;
+  grounding?: Record<string, unknown>;
+};
+
+export type PipelineResult = {
+  topic?: string;
+  status?: string;
+  corpus?: Paper[];
+  themes?: Record<string, unknown>;
+  citation_graph?: Record<string, unknown>;
+  blueprint?: PipelineBlueprint;
+  draft?: {
+    title?: string;
+    sections?: Record<string, string>;
+    latex?: string;
+    method?: string;
+    references_used?: Paper[];
+  };
+  review?: PipelineReview;
+  final_document?: PipelineFinalDocument;
+  warnings?: string[];
+  revision_count?: number;
+  stage_timings?: Record<string, number>;
+};
+
 export type RetrieveResponse = {
   papers: Paper[];
   domain: string;

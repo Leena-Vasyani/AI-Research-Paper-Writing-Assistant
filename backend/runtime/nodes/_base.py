@@ -113,3 +113,9 @@ def review_agent():
 def citation_agent():
     from backend.core_agents.citation_agent import CitationAgent
     return CitationAgent()
+
+
+@lru_cache(maxsize=1)
+def formatter_agent():
+    from backend.core_agents.formatter_agent import FormatterAgent
+    return FormatterAgent()

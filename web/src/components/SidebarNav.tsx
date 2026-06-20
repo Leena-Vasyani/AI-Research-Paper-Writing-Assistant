@@ -7,6 +7,7 @@ import ProjectLogo from "@/components/ProjectLogo";
 const navItems = [
   { href: "/", label: "Home" },
   { href: "/how-it-works", label: "How it works" },
+  { href: "/pipeline", label: "Research Pipeline" },
   { href: "/smart-drafter", label: "Smart Drafter" },
   { href: "/universal-research-formatter", label: "Universal Formatter" },
   { href: "/diagram-generator", label: "Text to Diagram" },

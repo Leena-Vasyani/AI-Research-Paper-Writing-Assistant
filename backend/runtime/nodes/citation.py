@@ -1,9 +1,10 @@
 """
-Citation node — attach grounded citations to the draft.
+Citation node — grounding gate.
 
-Phase 0: wraps the existing citation agent. Phase 6 reworks this into the
-provenance/grounding gate (every factual/numeric claim must resolve against
-the corpus / Citation Graph before export).
+Attaches citations and audits every factual/numeric/comparison claim for
+provenance against the corpus / Citation Graph (PDR §11). Claims without a
+supporting source are flagged as *blocked* and the result records whether the
+draft is export-ready.
 """
 
 from __future__ import annotations
@@ -19,14 +20,21 @@ def citation_node(state: PipelineState) -> Dict[str, Any]:
     draft = dict(state.get("draft", {}))
     sections = draft.get("sections", {})
     corpus = state.get("corpus", [])
-    review = state.get("review", {})
+    citation_graph = state.get("citation_graph", {})
     citation_style = state.get("constraints", {}).get("citation_style", "ieee")
 
-    cited = citation_agent().add_citations_to_draft(
+    result = citation_agent().ground_draft(
         sections,
         corpus,
-        plagiarism_results=review.get("plagiarism"),
+        citation_graph=citation_graph,
         citation_style=citation_style,
     )
-    draft["cited"] = cited
-    return {"draft": draft}
+    draft["cited"] = result
+
+    update: Dict[str, Any] = {"draft": draft}
+    grounding = result.get("grounding", {})
+    if not grounding.get("export_ready", True):
+        update["warnings"] = [
+            f"{len(grounding.get('blocked', []))} factual claim(s) lack provenance"
+        ]
+    return update

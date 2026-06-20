@@ -8,6 +8,7 @@ import type {
   GitHubToIEEEResult,
   Paper,
   PlagiarismReport,
+  PipelineResult,
   PseudocodeResult,
   QueryResult,
   RetrieveResponse,
@@ -74,6 +75,27 @@ export const api = {
   },
   query: (payload: { text: string; top_keywords: number }) =>
     request<QueryResult>("/api/query", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // ── Multi-agent pipeline (LangGraph runtime) ──────────────────────────
+  runPipeline: (payload: {
+    topic: string;
+    target_venue?: string;
+    output_type?: string;
+    constraints?: Record<string, unknown>;
+    raw_materials?: Record<string, unknown>;
+    max_revisions?: number;
+    review_threshold?: number;
+  }) =>
+    request<PipelineResult>("/api/pipeline/run", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  pipelineStages: () => request<{ stages: string[] }>("/api/pipeline/stages"),
+  runStage: (payload: { stage: string; state: Record<string, unknown> }) =>
+    request<PipelineResult>("/api/pipeline/stage", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

@@ -67,7 +67,11 @@ from api.schemas import (
     RAGSessionListItem,
     RAGMessageResponse,
     RAGUploadResponse,
+    PipelineRunRequest,
+    PipelineStageRequest,
 )
+
+from backend.api.controllers import pipeline_controller
 
 settings = get_settings()
 
@@ -476,6 +480,42 @@ def extract_keywords(req: KeywordExtractRequest) -> KeywordExtractResponse:
             provider=result.get("provider", "fallback"),
             elapsed_ms=result.get("elapsed_ms", 0),
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/pipeline/run")
+def pipeline_run(req: PipelineRunRequest) -> Dict[str, Any]:
+    """Run the full multi-agent pipeline (Search -> ... -> Formatter) and
+    return the final pipeline state (blueprint, draft + LaTeX, review, final
+    document, warnings, timings)."""
+    try:
+        return pipeline_controller.run_full(
+            req.topic,
+            target_venue=req.target_venue,
+            output_type=req.output_type,
+            constraints=req.constraints,
+            raw_materials=req.raw_materials,
+            max_revisions=req.max_revisions,
+            review_threshold=req.review_threshold,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/pipeline/stages")
+def pipeline_stages() -> Dict[str, Any]:
+    """List the ordered pipeline stages (for HITL stepping UIs)."""
+    return {"stages": pipeline_controller.STAGE_ORDER}
+
+
+@app.post("/api/pipeline/stage")
+def pipeline_stage(req: PipelineStageRequest) -> Dict[str, Any]:
+    """Run a single pipeline stage on the provided state (human-in-the-loop)."""
+    try:
+        return pipeline_controller.run_stage(req.stage, req.state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
