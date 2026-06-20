@@ -56,7 +56,18 @@ def run_full(
         max_revisions=max_revisions,
         review_threshold=review_threshold,
     )
-    result = _graph().invoke(state, config={"recursion_limit": 50})
+    # run_name + metadata surface as a named, filterable trace in LangSmith
+    # (LangGraph auto-emits node/edge spans when tracing is enabled).
+    config = {
+        "recursion_limit": 50,
+        "run_name": "research_pipeline",
+        "metadata": {
+            "topic": topic,
+            "output_type": output_type,
+            "target_venue": target_venue,
+        },
+    }
+    result = _graph().invoke(state, config=config)
     return dict(result)
 
 

@@ -75,6 +75,20 @@ class SearchAgentTest(unittest.TestCase):
         self.assertNotIn("<", p["abstract"])  # JATS tags stripped
         self.assertEqual(p["references"], [{"DOI": "10.1000/bbb"}])  # only DOI refs kept
 
+    def test_fuzzy_dedup_merges_near_duplicate_titles(self):
+        try:
+            import rapidfuzz  # noqa: F401
+        except Exception:
+            self.skipTest("rapidfuzz not installed")
+        papers = [
+            {"title": "Deep Learning for Smart Grid Load Forecasting", "citations": 10},
+            {"title": "Deep Learning for Smart-Grid Load Forecasting", "citations": 50},
+            {"title": "A Completely Different Paper on Robotics", "citations": 5},
+        ]
+        out = self.agent._fuzzy_dedup(papers, threshold=90)
+        self.assertEqual(len(out), 2)  # the two near-duplicate titles merged
+        self.assertTrue(any(p["citations"] == 50 for p in out))  # kept higher-cited
+
     def test_crossref_to_citation_graph_wires_references(self):
         # Two crossref papers where one references the other → directed edge.
         papers = [

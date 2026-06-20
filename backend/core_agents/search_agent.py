@@ -269,12 +269,13 @@ class SearchAgent:
     # Source fetchers
     # ------------------------------------------------------------------
 
-    def _retrieve_arxiv(self, keywords: List[str], max_results: int, synonyms: Optional[Dict[str, List[str]]] = None) -> List[Dict]:
+    def _retrieve_arxiv(self, keywords: List[str], max_results: int, synonyms: Optional[Dict[str, List[str]]] = None, raw_query: Optional[str] = None) -> List[Dict]:
         client = self._arxiv()
         if client is None or arxiv is None:
             return []
 
-        search_query = self.build_search_query(keywords, synonyms=synonyms)
+        # arXiv supports boolean syntax natively, so a raw boolean string is used as-is.
+        search_query = raw_query or self.build_search_query(keywords, synonyms=synonyms)
 
         def _do_search(query: str, limit: int) -> List[Dict]:
             out: List[Dict] = []
@@ -383,8 +384,9 @@ class SearchAgent:
             print(f"   [!] OpenAlex retrieval failed: {e}")
         return papers
 
-    def _retrieve_semantic_scholar(self, keywords: List[str], max_results: int, synonyms: Optional[Dict[str, List[str]]] = None) -> List[Dict]:
-        search_query = self.build_search_query(keywords, synonyms=synonyms)
+    def _retrieve_semantic_scholar(self, keywords: List[str], max_results: int, synonyms: Optional[Dict[str, List[str]]] = None, raw_query: Optional[str] = None) -> List[Dict]:
+        # Semantic Scholar is keyword-based; a stripped (operator-free) query is passed in.
+        search_query = raw_query or self.build_search_query(keywords, synonyms=synonyms)
         url = "https://api.semanticscholar.org/graph/v1/paper/search"
         # Use lower limit when no API key to respect rate limits
         limit = min(max_results, 10) if not self.semantic_scholar_api_key else min(max_results * 2, 50)
@@ -653,6 +655,40 @@ class SearchAgent:
     # Semantic helpers (optional — degrade gracefully without embeddings)
     # ------------------------------------------------------------------
 
+    def _fuzzy_dedup(self, papers: List[Dict], threshold: int = 90) -> List[Dict]:
+        """Merge papers whose titles are >threshold% similar (rapidfuzz
+        token_sort_ratio), keeping the more-cited copy. No-op if rapidfuzz
+        is unavailable or the list is trivially small."""
+        if len(papers) < 2:
+            return papers
+        try:
+            from rapidfuzz import fuzz
+        except Exception:
+            return papers
+
+        def _norm(t: str) -> str:
+            # lowercase + strip punctuation (so "Smart-Grid" == "Smart Grid")
+            return re.sub(r"\s{2,}", " ", re.sub(r"[^a-z0-9 ]", " ", (t or "").lower())).strip()
+
+        kept: List[Dict] = []
+        kept_norm: List[str] = []
+        for paper in papers:
+            title = (paper.get("title") or "").strip()
+            if not title:
+                continue
+            ntitle = _norm(title)
+            dup_idx = -1
+            for i, kn in enumerate(kept_norm):
+                if fuzz.token_sort_ratio(ntitle, kn) >= threshold:
+                    dup_idx = i
+                    break
+            if dup_idx == -1:
+                kept.append(paper)
+                kept_norm.append(ntitle)
+            elif int(paper.get("citations", 0) or 0) > int(kept[dup_idx].get("citations", 0) or 0):
+                kept[dup_idx] = paper  # keep the higher-impact duplicate
+        return kept
+
     def _semantic_dedup(self, papers: List[Dict], threshold: float = 0.92) -> List[Dict]:
         """Merge near-duplicate papers whose titles are semantically ~identical
         (e.g. preprint vs published), keeping the more-cited copy."""
@@ -858,7 +894,8 @@ class SearchAgent:
                 seen_dois.add(doi)
             unique_candidates.append(paper)
 
-        # --- Semantic near-duplicate merge (preprint vs published, etc.) ---
+        # --- Fuzzy title dedup (rapidfuzz >90%) then semantic near-dup merge ---
+        unique_candidates = self._fuzzy_dedup(unique_candidates)
         unique_candidates = self._semantic_dedup(unique_candidates)
 
         # --- Lexical score + recency filter ---
@@ -950,6 +987,125 @@ class SearchAgent:
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------
+
+    def _merge_dedupe_rank(
+        self, candidates: List[Dict], keywords: List[str], max_results: int
+    ) -> List[Dict]:
+        """Shared post-processing: exact + fuzzy + semantic dedup, score, recency
+        filter, semantic-relevance blend, rank, provenance."""
+        seen_urls: Set[str] = set()
+        seen_dois: Set[str] = set()
+        seen_titles: Set[str] = set()
+        unique: List[Dict] = []
+        for paper in candidates:
+            url = (paper.get("url") or "").strip()
+            doi = (paper.get("doi") or "").strip()
+            tkey = (paper.get("title") or "").strip().lower()
+            if not tkey or tkey in seen_titles:
+                continue
+            if url and url in seen_urls:
+                continue
+            if doi and doi in seen_dois:
+                continue
+            seen_titles.add(tkey)
+            if url:
+                seen_urls.add(url)
+            if doi:
+                seen_dois.add(doi)
+            unique.append(paper)
+
+        unique = self._fuzzy_dedup(unique)
+        unique = self._semantic_dedup(unique)
+
+        query_text = " ".join(keywords)
+        scored: List[Dict] = []
+        for paper in unique:
+            paper["relevance_score"] = self.calculate_relevance_score(paper, keywords)
+            if paper.get("published") and not self.is_recent_paper(paper["published"]):
+                continue
+            scored.append(paper)
+
+        self._semantic_relevance(scored, query_text)
+        papers = [p for p in scored if float(p.get("relevance_score", 0)) >= self.min_relevance_score]
+        papers.sort(
+            key=lambda p: (float(p.get("relevance_score", 0)), int(p.get("citations", 0))),
+            reverse=True,
+        )
+        papers = papers[:max_results]
+        for paper in papers:
+            paper.setdefault("provenance", {
+                "source": paper.get("source", ""),
+                "query_used": paper.get("query_used", query_text),
+                "retrieved_at": paper.get("retrieved_at", ""),
+                "doi": paper.get("doi", ""),
+                "url": paper.get("url", ""),
+            })
+        return papers
+
+    def retrieve_with_boolean_queries(
+        self,
+        queries: List[str],
+        keywords: List[str],
+        max_results: int = 8,
+    ) -> Dict[str, Any]:
+        """Execute boolean query strings concurrently — arXiv (native boolean)
+        + Semantic Scholar / CrossRef (operator-stripped keyword form) — then
+        merge/dedupe/rank into a single ranked corpus + citation graph."""
+        from backend.core_agents.query_builder import strip_boolean
+
+        cap = int(os.getenv("SEARCH_MAX_BOOL_QUERIES", "8"))
+        queries = [q for q in (queries or []) if q and q.strip()][:cap]
+        if not queries:
+            return {
+                "papers": [], "domain": "boolean", "source_status": {}, "total": 0,
+                "citation_graph": self.build_citation_graph([]), "boolean_queries_used": [],
+            }
+
+        per_q = max(3, max_results // 2)
+        source_status: Dict[str, str] = {}
+
+        def _run(q: str) -> List[Dict]:
+            out: List[Dict] = []
+            plain = strip_boolean(q)
+            try:
+                out.extend(self._retrieve_arxiv([], per_q, raw_query=q))
+                source_status["arxiv"] = "ok"
+            except Exception:
+                source_status.setdefault("arxiv", "error")
+            try:
+                out.extend(self._retrieve_semantic_scholar([], per_q, raw_query=plain))
+                source_status["semantic_scholar"] = "ok"
+            except Exception:
+                source_status.setdefault("semantic_scholar", "error")
+            try:
+                out.extend(self._retrieve_crossref([plain], per_q))
+                source_status["crossref"] = "ok"
+            except Exception:
+                source_status.setdefault("crossref", "error")
+            return out
+
+        all_candidates: List[Dict] = []
+        with ThreadPoolExecutor(max_workers=min(len(queries), 4)) as executor:
+            for res in executor.map(_run, queries):
+                all_candidates.extend(res)
+
+        papers = self._merge_dedupe_rank(all_candidates, keywords, max_results)
+        return {
+            "papers": papers,
+            "domain": "boolean",
+            "source_status": source_status,
+            "total": len(papers),
+            "query": "; ".join(queries[:3]),
+            "citation_graph": self.build_citation_graph(papers),
+            "boolean_queries_used": queries,
+        }
+
+    def retrieve_models(self, keywords: List[str], max_results: int = 8, **kwargs):
+        """Typed accessor: return the ranked corpus as a Pydantic ``RankedCorpus``."""
+        from backend.core_agents.schemas import RankedCorpus
+        return RankedCorpus.from_result(
+            self.retrieve_papers(keywords, max_results=max_results, **kwargs)
+        )
 
     @staticmethod
     def _make_cache_key(keywords: List[str], max_results: int, sources: Optional[List[str]]) -> str:

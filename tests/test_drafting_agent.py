@@ -89,6 +89,19 @@ class DraftingAgentTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("short" in i for i in issues))
 
+    def test_model_routing_per_section(self):
+        from backend.runtime.models import small_model, large_model
+        # Abstract/Conclusion → small model; body/lit-review → large model
+        self.assertIs(self.agent._model_for_section({"name": "Abstract", "role": "front_matter"}), small_model)
+        self.assertIs(self.agent._model_for_section({"name": "Conclusion", "role": "back_matter"}), small_model)
+        self.assertIs(self.agent._model_for_section({"name": "Methodology", "role": "body"}), large_model)
+        self.assertIs(self.agent._model_for_section({"name": "Related Work", "role": "micro_lit_review"}), large_model)
+
+    def test_shared_context_includes_plan(self):
+        ctx = self.agent._build_shared_context(self.blueprint, "GNNs for smart grids", ["GNN", "load forecasting"])
+        self.assertIn("Section plan", ctx)
+        self.assertIn("terminology", ctx.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

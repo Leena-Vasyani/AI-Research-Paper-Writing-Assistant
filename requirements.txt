@@ -36,6 +36,12 @@ protobuf>=3.20.0
 
 # Orchestration runtime
 langgraph>=0.2.0
+langsmith>=0.1.0
+
+# Search recall + clustering
+nltk>=3.8
+rapidfuzz>=3.0.0
+# hdbscan>=0.8.33  # optional: enables HDBSCAN clustering in Topic Mining
 
 # RAG & GitHub-to-IEEE
 langchain>=0.2.0

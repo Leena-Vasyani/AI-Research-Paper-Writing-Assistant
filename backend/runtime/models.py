@@ -28,6 +28,16 @@ try:
 except Exception:  # pragma: no cover - import guard
     _chat_completion = None  # type: ignore[assignment]
 
+try:
+    from backend.core_agents.observability import traceable
+except Exception:  # pragma: no cover - tracing optional
+    def traceable(*d_args, **d_kwargs):  # type: ignore[misc]
+        if len(d_args) == 1 and callable(d_args[0]) and not d_kwargs:
+            return d_args[0]
+        def deco(fn):
+            return fn
+        return deco
+
 
 SMALL = "small"
 LARGE = "large"
@@ -69,6 +79,7 @@ def _ollama_override(model: Optional[str]) -> Iterator[None]:
             os.environ["OLLAMA_MODEL"] = prev
 
 
+@traceable(run_type="llm", name="model.complete")
 def complete(
     prompt: str,
     *,

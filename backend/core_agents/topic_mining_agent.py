@@ -34,9 +34,17 @@ _GAP_SIM_THRESHOLD = float(os.getenv("TOPIC_GAP_SIM_THRESHOLD", "0.35"))
 
 
 class TopicMiningAgent:
-    def __init__(self, use_semantic: bool = True, max_clusters: int = 6):
+    def __init__(
+        self,
+        use_semantic: bool = True,
+        max_clusters: int = 6,
+        use_slm: bool = True,
+        method: str = "auto",
+    ):
         self.use_semantic = use_semantic
         self.max_clusters = max_clusters
+        self.use_slm = use_slm          # SLM 3-attribute extraction before embedding
+        self.method = method            # "auto" | "kmeans" | "hdbscan"
 
     # ------------------------------------------------------------------
     # Public API
@@ -64,18 +72,86 @@ class TopicMiningAgent:
     # Semantic clustering
     # ------------------------------------------------------------------
 
+    def _extract_attributes(self, papers: List[Dict[str, Any]]):
+        """SLM pass: extract {core_methodology, primary_problem_domain,
+        key_contribution} per abstract. Returns a list of PaperAttributes, or
+        None if no LLM produced anything (caller falls back to raw text)."""
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            from backend.runtime.models import small_model
+            from backend.core_agents.schemas import PaperAttributes
+            from backend.core_agents.query_builder import _safe_json
+        except Exception:  # pragma: no cover
+            return None
+
+        prompt_tmpl = (
+            "You are a scientific abstract analyzer. Bypass syntactic noise and extract "
+            "EXACTLY three attributes. Output ONLY a JSON object, no prose.\n\n"
+            "Abstract:\n\"\"\"{text}\"\"\"\n\n"
+            "Return JSON with EXACTLY these keys (each a concise phrase <= 12 words):\n"
+            '{{"core_methodology": "...", "primary_problem_domain": "...", "key_contribution": "..."}}'
+        )
+
+        def _one(p: Dict[str, Any]):
+            text = (p.get("abstract") or p.get("title") or "").strip()[:1500]
+            if not text:
+                return PaperAttributes()
+            try:
+                raw = small_model(prompt_tmpl.format(text=text), max_tokens=200, temperature=0.1)
+                data = _safe_json(raw) or {}
+                return PaperAttributes(
+                    core_methodology=str(data.get("core_methodology", "")).strip(),
+                    primary_problem_domain=str(data.get("primary_problem_domain", "")).strip(),
+                    key_contribution=str(data.get("key_contribution", "")).strip(),
+                )
+            except Exception:  # noqa: BLE001
+                return PaperAttributes()
+
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            results = list(ex.map(_one, papers))
+        if all(not r.focused_text() for r in results):
+            return None  # no LLM / all empty → signal fallback to raw text
+        return results
+
+    def _cluster_embeddings(self, embeddings, n: int):
+        """Cluster embeddings → (labels, centroids|None, method). HDBSCAN when
+        requested/available (auto for large corpora), else K-Means."""
+        use_hdbscan = self.method == "hdbscan" or (self.method == "auto" and n >= 25)
+        if use_hdbscan:
+            try:
+                import hdbscan
+                labels = hdbscan.HDBSCAN(min_cluster_size=max(2, n // 10)).fit_predict(embeddings)
+                if len({int(l) for l in labels if int(l) >= 0}) >= 2:
+                    return labels, None, "hdbscan"
+            except Exception as exc:  # noqa: BLE001
+                print(f"   [!] HDBSCAN unavailable/failed ({exc}); using KMeans")
+        try:
+            from sklearn.cluster import KMeans
+            k = max(2, min(self.max_clusters, n // 2))
+            km = KMeans(n_clusters=k, n_init=10, random_state=42)
+            labels = km.fit_predict(embeddings)
+            return labels, km.cluster_centers_, "kmeans"
+        except Exception as exc:  # noqa: BLE001
+            print(f"   [!] KMeans failed: {exc}")
+            return None, None, "none"
+
     def _cluster_semantic(self, papers: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         model = _get_embed_model()
         if model is None:
             return None
         try:
             import numpy as np
-            from sklearn.cluster import KMeans
         except Exception as exc:  # noqa: BLE001
             print(f"   [!] Topic mining clustering unavailable: {exc}")
             return None
 
-        docs = [f"{p.get('title', '')}. {p.get('abstract', '')}"[:512] for p in papers]
+        # SLM 3-attribute extraction → focused embedding text (fallback: title+abstract).
+        attributes = self._extract_attributes(papers) if self.use_slm else None
+        docs: List[str] = []
+        for i, p in enumerate(papers):
+            focused = attributes[i].focused_text() if (attributes and i < len(attributes)) else ""
+            docs.append((focused or f"{p.get('title', '')}. {p.get('abstract', '')}")[:512])
+
         try:
             embeddings = model.encode(docs, convert_to_numpy=True, normalize_embeddings=True)
         except Exception as exc:  # noqa: BLE001
@@ -83,24 +159,22 @@ class TopicMiningAgent:
             return None
 
         n = len(papers)
-        k = max(2, min(self.max_clusters, n // 2))
-        try:
-            km = KMeans(n_clusters=k, n_init=10, random_state=42)
-            labels = km.fit_predict(embeddings)
-            centroids = km.cluster_centers_
-        except Exception as exc:  # noqa: BLE001
-            print(f"   [!] KMeans failed: {exc}")
+        labels, centroids, method = self._cluster_embeddings(embeddings, n)
+        if labels is None:
             return None
 
         clusters: List[Dict[str, Any]] = []
-        for cid in range(k):
-            members = [i for i, lab in enumerate(labels) if lab == cid]
+        for cid in sorted({int(l) for l in labels if int(l) >= 0}):
+            members = [i for i, lab in enumerate(labels) if int(lab) == cid]
             if not members:
                 continue
             cluster_papers = [papers[i] for i in members]
-            # representative = paper nearest the centroid
-            import numpy as np
-            dists = [float(np.linalg.norm(embeddings[i] - centroids[cid])) for i in members]
+            cent = (
+                centroids[cid]
+                if centroids is not None and cid < len(centroids)
+                else np.mean(embeddings[members], axis=0)
+            )
+            dists = [float(np.linalg.norm(embeddings[i] - cent)) for i in members]
             rep_idx = members[int(np.argmin(dists))]
             theme, keywords = self._label_cluster(cluster_papers)
             clusters.append({
@@ -110,11 +184,35 @@ class TopicMiningAgent:
                 "size": len(members),
                 "representative": papers[rep_idx].get("title", ""),
                 "papers": [p.get("title", "") for p in cluster_papers],
-                "centroid": centroids[cid].tolist(),
+                "centroid": cent.tolist(),
             })
 
         clusters.sort(key=lambda c: c["size"], reverse=True)
-        return {"clusters": clusters, "method": "kmeans", "_stub": False}
+
+        # Silhouette score (exclude HDBSCAN noise label -1).
+        silhouette = None
+        try:
+            from sklearn.metrics import silhouette_score
+            valid = [i for i, l in enumerate(labels) if int(l) >= 0]
+            vlabels = [int(labels[i]) for i in valid]
+            if 2 <= len(set(vlabels)) < len(valid):
+                silhouette = round(float(silhouette_score(embeddings[valid], vlabels)), 4)
+        except Exception:  # noqa: BLE001
+            silhouette = None
+
+        metrics = {
+            "method": method,
+            "n_clusters": len(clusters),
+            "silhouette": silhouette,
+            "n_papers": n,
+            "attributes_extracted": bool(attributes),
+        }
+        return {"clusters": clusters, "method": method, "metrics": metrics, "_stub": False}
+
+    def mine_models(self, papers, query_analysis=None):
+        """Typed accessor: return the mining result as a Pydantic model."""
+        from backend.core_agents.schemas import TopicMiningResult
+        return TopicMiningResult.from_result(self.mine(papers, query_analysis))
 
     def _label_cluster(self, cluster_papers: List[Dict[str, Any]]) -> tuple[str, List[str]]:
         """Top TF-IDF terms across the cluster's titles/abstracts as a label."""
@@ -214,5 +312,12 @@ class TopicMiningAgent:
             "taxonomy": [c["theme"] for c in clusters],
             "gaps": list(query_analysis.get("research_gaps", []) or []),
             "method": "subtopic_fallback",
+            "metrics": {
+                "method": "subtopic_fallback",
+                "n_clusters": len(clusters),
+                "silhouette": None,
+                "n_papers": len(papers),
+                "attributes_extracted": False,
+            },
             "_stub": False,
         }

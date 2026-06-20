@@ -39,6 +39,16 @@ if not _ENV_LOADED:
 # ---------------------------------------------------------------------------
 
 try:
+    from backend.core_agents.observability import traceable
+except Exception:  # pragma: no cover - tracing optional
+    def traceable(*d_args, **d_kwargs):  # type: ignore[misc]
+        if len(d_args) == 1 and callable(d_args[0]) and not d_kwargs:
+            return d_args[0]
+        def deco(fn):
+            return fn
+        return deco
+
+try:
     from openai import OpenAI as _OpenAIClient   # used for Ollama OpenAI-compat API
 except ImportError:
     _OpenAIClient = None  # type: ignore[assignment]
@@ -214,6 +224,7 @@ def _call_gemini(
 # Public interface
 # ---------------------------------------------------------------------------
 
+@traceable(run_type="llm", name="chat_completion")
 def chat_completion(
     prompt: str,
     *,

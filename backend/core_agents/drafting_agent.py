@@ -105,12 +105,20 @@ class DraftingAgent:
         section_meta: Dict[str, Any] = {}
         refs_used_all: Dict[str, Dict[str, Any]] = {}
 
+        # Shared, plan-level context so parallel section writers stay coherent
+        # (each knows the title, every other section's goal, and a glossary)
+        # without needing the other sections' actual text.
+        glossary = self._build_glossary(blueprint, corpus)
+        shared_context = self._build_shared_context(blueprint, topic, glossary)
+
         # --- Parallel Section Dispatch for body sections ---
         def _work(spec: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any], List[Dict[str, Any]]]:
             name = spec.get("name", "Section")
             refs = self._retrieve_refs(spec, corpus, index)
             data = self._extract_data(spec, raw_materials)
-            text = self._generate_section(spec, refs, data, topic, context="", feedback=review_feedback)
+            text = self._generate_section(
+                spec, refs, data, topic, context=shared_context, feedback=review_feedback
+            )
             text, meta = self._verify_and_refine(spec, text, refs)
             return name, text, meta, refs
 
@@ -271,12 +279,58 @@ class DraftingAgent:
                     return ft
         return self._deterministic_section(spec, refs, data, topic, context)
 
+    def _model_for_section(self, spec: Dict[str, Any]):
+        """Route a section to the appropriate model tier (multiple SLMs per
+        section): short summarizing sections → small model; substantive
+        body/lit-review sections → large model. Env override per type."""
+        from backend.runtime.models import small_model, large_model
+        role = spec.get("role", "body")
+        name = (spec.get("name", "") or "").strip().lower()
+        if role in ("front_matter", "back_matter") or name in ("abstract", "conclusion", "title"):
+            return small_model
+        # optional per-type override hook (e.g. DRAFT_METHODOLOGY_MODEL) is read
+        # inside llm_provider via env; here we just pick the capable tier.
+        return large_model
+
+    def _build_glossary(self, blueprint: Dict[str, Any], corpus: List[Dict[str, Any]]) -> List[str]:
+        """One small-model call to fix shared terminology across all sections."""
+        if not self.use_llm:
+            return []
+        try:
+            from backend.runtime.models import small_model
+        except Exception:
+            return []
+        themes = ", ".join((blueprint.get("themes") or [])[:8])
+        titles = "; ".join(p.get("title", "") for p in corpus[:8])
+        raw = small_model(
+            f"List 6-12 key technical terms/acronyms (comma-separated, no prose) to use "
+            f"consistently across a paper on '{blueprint.get('topic', '')}'. "
+            f"Themes: {themes}. Sources: {titles}",
+            max_tokens=120,
+            temperature=0.2,
+        )
+        if not raw:
+            return []
+        return [t.strip() for t in re.split(r"[,\n]", raw) if t.strip()][:12]
+
+    def _build_shared_context(self, blueprint: Dict[str, Any], topic: str, glossary: List[str]) -> str:
+        """Plan-level context injected into every section prompt."""
+        title = blueprint.get("title_hint") or topic
+        plan = "; ".join(
+            f"{s.get('name')}: {s.get('goal', '')}"
+            for s in blueprint.get("sections", [])
+            if (s.get("name", "") or "").lower() != "references"
+        )
+        lines = [f"Paper title: {title}", f"Section plan — {plan}"]
+        if glossary:
+            lines.append("Use this terminology consistently: " + ", ".join(glossary))
+        return "\n".join(lines)
+
     def _llm_section(
         self, spec, refs, data, topic, context, target, feedback,
     ) -> Optional[str]:
-        try:
-            from backend.runtime.models import large_model
-        except Exception:
+        model_fn = self._model_for_section(spec)
+        if model_fn is None:
             return None
         name = spec.get("name", "Section")
         cues = "; ".join(
@@ -288,18 +342,21 @@ class DraftingAgent:
         fb = ""
         if feedback and feedback.get("major_concerns"):
             fb = "\nAddress these review concerns: " + "; ".join(map(str, feedback["major_concerns"]))
-        ctx = f"\nManuscript so far (for consistency):\n{context[:2000]}" if context else ""
+        ctx = f"\nManuscript plan & context:\n{context[:2000]}" if context else ""
         prompt = (
-            f"Write the '{name}' section of an academic paper on \"{topic}\".\n"
+            f"You are writing ONE section of a single coherent academic paper on \"{topic}\".\n"
+            f"{ctx}\n"
+            f"Write ONLY the '{name}' section (~{target} words).\n"
             f"Goal: {spec.get('goal','')}\nWriting cues: {cues}\n"
-            f"Target length: ~{target} words. Use formal academic prose, cite the "
-            f"sources below by author/title where relevant.\n"
+            f"Cover ONLY this section's scope — do NOT write content owned by other "
+            f"sections (see the section plan above). Use formal academic prose and cite "
+            f"the sources below by author/title where relevant.\n"
             f"Relevant sources:\n{ref_block}\n"
-            f"{('Experimental data:\\n' + data) if data else ''}{ctx}{fb}\n"
+            f"{('Experimental data:\\n' + data) if data else ''}{fb}\n"
             f"Return ONLY the section prose (no markdown headings)."
         )
         max_tokens = min(2048, int(target * 1.6) + 200)
-        return large_model(prompt, max_tokens=max_tokens, temperature=0.4)
+        return model_fn(prompt, max_tokens=max_tokens, temperature=0.4)
 
     def _finetuned_section(self, spec, topic, context) -> Optional[str]:
         """Optional FLAN-T5 fallback for the classic sections."""

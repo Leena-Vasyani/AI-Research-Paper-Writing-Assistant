@@ -61,6 +61,19 @@ class ReviewAgentTest(unittest.TestCase):
         self.assertTrue(r["has_critical_issues"])
         self.assertEqual(r["scores"]["originality"], 2.0)
 
+    def test_section_reviews_present(self):
+        draft = {"sections": {
+            "Introduction": "We study graph neural networks for smart grids. " * 8,
+            "Results": "Our method works. ",  # short → flagged
+        }}
+        r = self.agent.review(draft, topic="t")
+        self.assertIn("section_reviews", r)
+        names = {s["section"] for s in r["section_reviews"]}
+        self.assertEqual(names, {"Introduction", "Results"})
+        for sr in r["section_reviews"]:
+            self.assertIn("score", sr)
+            self.assertIn("issues", sr)
+
     def test_recommendation_mapping(self):
         self.assertEqual(self.agent._recommend(8.5, False), "accept")
         self.assertEqual(self.agent._recommend(7.0, False), "weak_accept")

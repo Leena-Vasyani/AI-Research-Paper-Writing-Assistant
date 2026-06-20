@@ -62,7 +62,8 @@ class TopicMiningSemanticTest(unittest.TestCase):
         if _get_embed_model() is None:
             self.skipTest("embedding model unavailable offline")
 
-        agent = TopicMiningAgent(use_semantic=True, max_clusters=2)
+        # use_slm=False keeps it offline (no SLM attribute extraction call)
+        agent = TopicMiningAgent(use_semantic=True, max_clusters=2, use_slm=False)
         papers = [
             _paper("Solar power forecasting with neural nets", "photovoltaic irradiance prediction"),
             _paper("Wind and solar generation forecasting", "renewable generation forecasting models"),
@@ -75,6 +76,10 @@ class TopicMiningSemanticTest(unittest.TestCase):
         # every paper is assigned to some cluster
         total = sum(c["size"] for c in result["clusters"])
         self.assertEqual(total, len(papers))
+        # metrics with a silhouette score are reported
+        self.assertIn("metrics", result)
+        self.assertIn("silhouette", result["metrics"])
+        self.assertEqual(result["metrics"]["method"], "kmeans")
 
 
 if __name__ == "__main__":

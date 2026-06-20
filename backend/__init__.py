@@ -16,3 +16,11 @@ for _stream in ("stdout", "stderr"):
             _reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+# Initialize LangSmith tracing early (no-op unless a key is configured) so the
+# @traceable decorators applied at agent-import time pick up the right state.
+try:
+    from backend.core_agents.observability import init_tracing as _init_tracing
+    _init_tracing()
+except Exception:
+    pass

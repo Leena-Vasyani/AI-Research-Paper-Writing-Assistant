@@ -114,7 +114,8 @@ class RuntimeGraphTest(unittest.TestCase):
 
     def test_pipeline_runs_and_loop_terminates(self):
         graph = build_pipeline_graph()
-        state = new_state("test topic", max_revisions=2)
+        # use_boolean=False keeps search offline (no thesaurus/LLM expansion)
+        state = new_state("test topic", max_revisions=2, constraints={"use_boolean": False})
         result = graph.invoke(state, config={"recursion_limit": 50})
 
         # Reached the end with a final document.

@@ -59,11 +59,13 @@ class ReviewAgent:
         use_plagiarism: bool = True,
         review_threshold: float = 7.0,
         max_workers: int = 4,
+        use_section_review: bool = True,
     ):
         self.use_llm = use_llm
         self.use_plagiarism = use_plagiarism
         self.review_threshold = review_threshold
         self.max_workers = max_workers
+        self.use_section_review = use_section_review
 
     # ------------------------------------------------------------------
     # Public API
@@ -116,6 +118,7 @@ class ReviewAgent:
 
         contradictions = self._logical_consistency(ctx)
         unsupported = self._unsupported_claims(sections)
+        section_reviews = self._review_sections(sections, ctx) if self.use_section_review else []
 
         mean_score = round(sum(scores[a] for a in _SCORE_AXES) / len(_SCORE_AXES), 2)
         has_critical = self._has_critical(scores, contradictions, unsupported, plagiarism_report)
@@ -127,6 +130,7 @@ class ReviewAgent:
             "scores": scores,
             "logical_consistency": {"contradictions": contradictions},
             "unsupported_claims": unsupported,
+            "section_reviews": section_reviews,
             "mean_score": mean_score,
             "has_critical_issues": has_critical,
             "major_concerns": major_concerns,
@@ -135,6 +139,54 @@ class ReviewAgent:
             "plagiarism": plagiarism_report,
             "method": method,
         }
+
+    # ------------------------------------------------------------------
+    # Per-section review (multiple SLMs reviewing different sections)
+    # ------------------------------------------------------------------
+
+    def _review_sections(self, sections: Dict[str, str], ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Run a focused critic per section (parallel). LLM when available,
+        else a length/grounding heuristic so output is always populated."""
+        items = [(name, text) for name, text in (sections or {}).items() if text and text.strip()]
+        if not items:
+            return []
+
+        use_llm = self.use_llm and self._llm_available()
+
+        def _one(item):
+            name, text = item
+            if use_llm:
+                try:
+                    from backend.runtime.models import small_model
+                    prompt = (
+                        f"You are a meticulous academic section reviewer. Output ONLY JSON.\n"
+                        f'Section "{name}". Text:\n"""{text[:3000]}"""\n'
+                        f'Return {{"score": 0-10, "issues": ["..."]}} judging clarity, '
+                        f"grounding in cited sources, and completeness."
+                    )
+                    data = _extract_json(small_model(prompt, max_tokens=200, temperature=0.2))
+                    if isinstance(data, dict) and "score" in data:
+                        return {
+                            "section": name,
+                            "score": max(0.0, min(10.0, float(data.get("score", 0)))),
+                            "issues": [str(x) for x in (data.get("issues") or [])][:5],
+                        }
+                except Exception:  # noqa: BLE001
+                    pass
+            # Heuristic fallback: penalize very short / ungrounded sections.
+            words = len(text.split())
+            grounded = bool(_CITATION_HINT_RE.search(text))
+            score = 5.0 + (1.5 if words >= 120 else 0.0) + (1.5 if grounded else 0.0)
+            issues = []
+            if words < 120:
+                issues.append("section is short")
+            if not grounded:
+                issues.append("no cited source")
+            return {"section": name, "score": round(min(8.0, score), 1), "issues": issues}
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
+            return list(ex.map(_one, items))
 
     # ------------------------------------------------------------------
     # Plagiarism / originality
