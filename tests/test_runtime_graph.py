@@ -39,14 +39,18 @@ class _FakeSearchAgent:
                 "citation_graph": {"nodes": [], "edges": [], "stats": {}}}
 
 
-class _FakeSummarizer:
-    def generate_comprehensive_summary(self, papers, keywords):
-        return {"executive_summary": "summary", "section_summaries": {}}
-
-
 class _FakeDrafter:
-    def generate_complete_draft(self, topic, summary, keywords):
-        return {"abstract": "abs", "introduction": "intro", "related_work": "rw"}
+    def draft(self, blueprint, corpus, *, topic="", raw_materials=None,
+              constraints=None, review_feedback=None):
+        return {
+            "title": "A Title",
+            "sections": {"Introduction": "intro", "Methodology": "method",
+                         "Conclusion": "concl", "Abstract": "abs"},
+            "latex": "\\documentclass{article}\\begin{document}\\end{document}",
+            "section_meta": {},
+            "references_used": [],
+            "method": "deterministic",
+        }
 
 
 class _FakePlagiarismCritical:
@@ -68,7 +72,6 @@ class RuntimeGraphTest(unittest.TestCase):
             (search_mod, "search_agent", lambda: _FakeSearchAgent()),
             # real OutlineAgent, but offline (no LLM/network)
             (outline_mod, "outline_agent", lambda: OutlineAgent(use_llm=False)),
-            (drafting_mod, "summarization_agent", lambda: _FakeSummarizer()),
             (drafting_mod, "drafting_agent", lambda: _FakeDrafter()),
             (review_mod, "plagiarism_agent", lambda: _FakePlagiarismCritical()),
             (citation_mod, "citation_agent", lambda: _FakeCitation()),

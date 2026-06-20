@@ -93,8 +93,8 @@ def summarization_agent():
 
 @lru_cache(maxsize=1)
 def drafting_agent():
-    from backend.fine_tuning.fine_tuned_drafting_agent import get_drafting_agent, DraftingConfig
-    return get_drafting_agent(DraftingConfig())
+    from backend.core_agents.drafting_agent import DraftingAgent
+    return DraftingAgent()
 
 
 @lru_cache(maxsize=1)
