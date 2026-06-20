@@ -11,9 +11,11 @@ import unittest
 from backend.runtime.graph import build_pipeline_graph, _after_review
 from backend.runtime.state import new_state
 import backend.runtime.nodes.search as search_mod
+import backend.runtime.nodes.outline as outline_mod
 import backend.runtime.nodes.drafting as drafting_mod
 import backend.runtime.nodes.review as review_mod
 import backend.runtime.nodes.citation as citation_mod
+from backend.core_agents.outline_agent import OutlineAgent
 
 
 # --- Fakes -----------------------------------------------------------------
@@ -64,6 +66,8 @@ class RuntimeGraphTest(unittest.TestCase):
         self._patches = [
             (search_mod, "query_agent", lambda: _FakeQueryAgent()),
             (search_mod, "search_agent", lambda: _FakeSearchAgent()),
+            # real OutlineAgent, but offline (no LLM/network)
+            (outline_mod, "outline_agent", lambda: OutlineAgent(use_llm=False)),
             (drafting_mod, "summarization_agent", lambda: _FakeSummarizer()),
             (drafting_mod, "drafting_agent", lambda: _FakeDrafter()),
             (review_mod, "plagiarism_agent", lambda: _FakePlagiarismCritical()),

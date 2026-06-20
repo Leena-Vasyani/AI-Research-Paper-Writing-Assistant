@@ -1,42 +1,30 @@
 """
 Outline node — produce the JSON Blueprint that drives drafting.
 
-Phase 0: emits a minimal blueprint matching the current draft sections
-(abstract / introduction / related_work) so the pipeline runs end-to-end.
-Phase 3 replaces this with the full Outline Agent (small-model cues ->
-LLM section plan -> delta-feedback loop, 8 sections / ~4 subsections,
-citation hints, visualization directives, template parsing).
+Delegates to the OutlineAgent: deterministic skeleton (always valid) enriched
+with small-model section cues, then a delta-feedback coverage pass. Consumes the
+themes (Topic Mining), corpus + Citation Graph (Search), and any raw materials
+(notes / conference LaTeX template) from state.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from backend.runtime.nodes._base import node
+from backend.runtime.nodes._base import node, outline_agent
 from backend.runtime.state import PipelineState
-
-# Minimal default structure for the Phase 0 stub.
-_DEFAULT_SECTIONS = ["abstract", "introduction", "related_work"]
 
 
 @node("outline")
 def outline_node(state: PipelineState) -> Dict[str, Any]:
-    themes = state.get("themes", {})
-    sections = [
-        {
-            "name": name,
-            "subsections": [],
-            "citation_hints": [],
-            "visualization_directives": [],
-        }
-        for name in _DEFAULT_SECTIONS
-    ]
-    blueprint = {
-        "topic": state["topic"],
-        "target_venue": state.get("target_venue", "IEEE"),
-        "output_type": state.get("output_type", "research_paper"),
-        "sections": sections,
-        "themes": themes.get("clusters", []),
-        "_stub": True,  # replaced in Phase 3
-    }
+    blueprint = outline_agent().build(
+        state["topic"],
+        themes=state.get("themes", {}),
+        corpus=state.get("corpus", []),
+        citation_graph=state.get("citation_graph", {}),
+        target_venue=state.get("target_venue", "IEEE"),
+        output_type=state.get("output_type", "research_paper"),
+        raw_materials=state.get("raw_materials", {}),
+        constraints=state.get("constraints", {}),
+    )
     return {"blueprint": blueprint}
