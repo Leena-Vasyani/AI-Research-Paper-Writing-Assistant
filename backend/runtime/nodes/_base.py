@@ -104,6 +104,12 @@ def plagiarism_agent():
 
 
 @lru_cache(maxsize=1)
+def review_agent():
+    from backend.core_agents.review_agent import ReviewAgent
+    return ReviewAgent()
+
+
+@lru_cache(maxsize=1)
 def citation_agent():
     from backend.core_agents.citation_agent import CitationAgent
     return CitationAgent()

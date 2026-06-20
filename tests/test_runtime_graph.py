@@ -53,10 +53,19 @@ class _FakeDrafter:
         }
 
 
-class _FakePlagiarismCritical:
-    """Always reports critical overlap -> forces the revision loop."""
-    def check_plagiarism(self, sections, papers, topic):
-        return {"overall_score": 0.9, "overall_status": "high", "section_analyses": []}
+class _FakeReviewCritical:
+    """Always returns a critical review -> forces the revision loop to exhaust."""
+    def review(self, draft, *, topic="", corpus=None, citation_graph=None,
+               blueprint=None, plagiarism_report=None):
+        return {
+            "scores": {"novelty": 3.0, "coherence": 3.0, "evidence_quality": 3.0,
+                       "writing_reproducibility": 3.0, "originality": 2.0},
+            "mean_score": 2.8,
+            "has_critical_issues": True,
+            "major_concerns": ["low scores"],
+            "recommendation": "revise",
+            "critique": {"general": ["improve everything"]},
+        }
 
 
 class _FakeCitation:
@@ -73,7 +82,7 @@ class RuntimeGraphTest(unittest.TestCase):
             # real OutlineAgent, but offline (no LLM/network)
             (outline_mod, "outline_agent", lambda: OutlineAgent(use_llm=False)),
             (drafting_mod, "drafting_agent", lambda: _FakeDrafter()),
-            (review_mod, "plagiarism_agent", lambda: _FakePlagiarismCritical()),
+            (review_mod, "review_agent", lambda: _FakeReviewCritical()),
             (citation_mod, "citation_agent", lambda: _FakeCitation()),
         ]
         self._originals = [(mod, name, getattr(mod, name)) for mod, name, _ in self._patches]
