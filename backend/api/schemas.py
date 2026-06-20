@@ -7,12 +7,69 @@ class QueryRequest(BaseModel):
     top_keywords: int = Field(8, ge=3, le=20)
 
 
+class KeywordItem(BaseModel):
+    text: str = ""
+    score: float = 0.0
+    type: str = "core"
+
+
+class KeywordExtractRequest(BaseModel):
+    text: str = Field(..., description="Text to extract keywords from")
+    top_n: int = Field(8, ge=1, le=20)
+    use_llm: bool = Field(True, description="Use LLM for semantic extraction")
+    expand_acronyms: bool = Field(True, description="Expand detected acronyms")
+    return_synonyms: bool = Field(False, description="Generate synonym variants")
+
+
+class KeywordExtractResponse(BaseModel):
+    keywords: List[KeywordItem] = Field(default_factory=list)
+    synonyms: Dict[str, List[str]] = Field(default_factory=dict)
+    provider: str = "fallback"
+    elapsed_ms: int = 0
+
+
+class SearchStrategy(BaseModel):
+    max_results: int = 5
+    use_multi_query: bool = False
+    sources: List[str] = Field(default_factory=lambda: ["arxiv", "openalex", "semantic_scholar"])
+    recommended_top_keywords: int = 8
+
+
+class QueryResponse(BaseModel):
+    original_topic: str = ""
+    keywords: List[str] = Field(default_factory=list)
+    subtopics: Dict[str, List[str]] = Field(default_factory=dict)
+    complexity_analysis: Dict[str, Any] = Field(default_factory=dict)
+    intent: str = "informational"
+    intent_confidence: float = 0.0
+    sub_queries: List[str] = Field(default_factory=list)
+    synonyms: Dict[str, List[str]] = Field(default_factory=dict)
+    domain_specificity_score: float = 0.0
+    scope: str = "narrow"
+    search_strategy: SearchStrategy = Field(default_factory=SearchStrategy)
+    keyword_details: List[KeywordItem] = Field(default_factory=list)
+    elapsed_ms: int = 0
+
+
 class RetrieveRequest(BaseModel):
     keywords: List[str]
     max_results: int = Field(5, ge=1, le=20)
     use_multi_query: bool = False
     subtopics: Optional[Dict[str, List[str]]] = None
     sources: Optional[List[str]] = None
+    domain: Optional[str] = Field(
+        None,
+        description="Force domain routing: 'health' | 'cs' | 'general'. Auto-detected if omitted."
+    )
+
+
+class RetrieveResponse(BaseModel):
+    papers: List[Dict[str, Any]] = Field(default_factory=list)
+    domain: str = "general"
+    source_status: Dict[str, str] = Field(default_factory=dict)
+    total: int = 0
+    query: str = ""
+    warnings: Optional[List[str]] = None
 
 
 class SummarizeRequest(BaseModel):

@@ -1,15 +1,18 @@
 """
 Shared LLM provider utility.
 
-Priority: Ollama Cloud (qwen3.5:397b-cloud) → Groq → Gemini → None
+Priority: Ollama (local/cloud) → Groq → Gemini → None
 
 Ollama exposes an OpenAI-compatible REST API at:
-  http://localhost:11434/v1   (default local)
+  http://localhost:11434/v1   (default local — FREE, no subscription)
   or OLLAMA_BASE_URL env var  (cloud / custom)
 
+Recommended free local models (install via `ollama pull <model>`):
+  llama3.2, gemma3:4b, deepseek-r1:8b, qwen2.5:7b, phi4
+
 Set in .env:
-  OLLAMA_BASE_URL=<your ollama cloud base url>  # e.g. https://api.example.com/v1
-  OLLAMA_MODEL=qwen3.5:397b-cloud               # model tag
+  OLLAMA_BASE_URL=http://localhost:11434/v1
+  OLLAMA_MODEL=llama3.2
 """
 
 from __future__ import annotations
@@ -18,6 +21,18 @@ import os
 import json
 import requests as _requests
 from typing import List, Optional
+
+# Load .env so standalone imports always see env vars
+_ENV_LOADED = False
+if not _ENV_LOADED:
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
+        if os.path.isfile(_dotenv_path):
+            _load_dotenv(_dotenv_path, override=False)
+            _ENV_LOADED = True
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Lazy imports — keep hard deps optional so startup never crashes
@@ -46,7 +61,7 @@ def _ollama_base_url() -> str:
     return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1").rstrip("/")
 
 def _ollama_model() -> str:
-    return os.getenv("OLLAMA_MODEL", "qwen3.5:397b-cloud")
+    return os.getenv("OLLAMA_MODEL", "llama3.2")
 
 def _groq_api_key() -> str:
     return os.getenv("GROQ_API_KEY", "").strip()
@@ -156,7 +171,7 @@ def _call_groq(
         content = response.choices[0].message.content
         return content.strip() if content else None
     except Exception as exc:
-        print(f"   ⚠️ Groq call failed: {exc}")
+        print(f"   ⚠️ Groq call failed: {type(exc).__name__}: {exc}")
         return None
 
 
@@ -192,7 +207,7 @@ def _call_gemini(
         )
         return response.text.strip() if response and response.text else None
     except Exception as exc:
-        print(f"  ⚠️ Gemini call failed: {exc}")
+        print(f"   ⚠️ Gemini call failed: {type(exc).__name__}: {exc}")
         return None
 
 # ---------------------------------------------------------------------------

@@ -327,11 +327,14 @@ class ResearchPaperGeneratorUI:
                     status_text.text("📡 Querying arXiv API...")
                     progress_bar.progress(40)
                     
-                    papers = self.retrieval_agent.retrieve_papers_multi_query(
+                    result = self.retrieval_agent.retrieve_papers_multi_query(
                         query_result['keywords'],
                         query_result['subtopics'],
                         max_results=num_papers
                     )
+                    
+                    # Extract papers from the result dictionary
+                    papers = result.get('papers', [])
                     
                     progress_bar.progress(80)
                     status_text.text("📊 Ranking papers...")
@@ -345,7 +348,9 @@ class ResearchPaperGeneratorUI:
                     # Sort by relevance
                     papers.sort(key=lambda x: x['relevance'], reverse=True)
                     
+                    # Store both papers and full result for debugging/reference
                     st.session_state.retrieved_papers = papers
+                    st.session_state.retrieval_result = result
                     
                     progress_bar.progress(100)
                     status_text.text("✅ Complete!")
@@ -358,26 +363,60 @@ class ResearchPaperGeneratorUI:
         
         # Display Papers
         if hasattr(st.session_state, 'retrieved_papers'):
-            st.markdown(f"### 📋 Retrieved Papers ({len(st.session_state.retrieved_papers)})")
+            papers = st.session_state.retrieved_papers
+            retrieval_info = st.session_state.get('retrieval_result', {})
             
-            for i, paper in enumerate(st.session_state.retrieved_papers, 1):
-                with st.expander(f"📄 {i}. {paper['title']}", expanded=False):
-                    col1, col2 = st.columns([3, 1])
-                    
-                    with col1:
-                        st.write(f"**Authors:** {paper['authors_str']}")
-                        st.write(f"**Published:** {paper['published']}")
-                        st.write(f"**Category:** {paper['primary_category']}")
-                        st.write(f"**Abstract:** {paper['abstract'][:300]}...")
-                        st.write(f"[📥 PDF]({paper['pdf_url']})")
-                    
-                    with col2:
-                        relevance_pct = paper.get('relevance', 0.5) * 100
-                        color = "🟢" if relevance_pct > 70 else "🟡" if relevance_pct > 50 else "🟠"
-                        st.metric("Relevance", f"{relevance_pct:.0f}%", color)
+            st.markdown(f"### 📋 Retrieved Papers ({len(papers)})")
             
-            st.markdown("---")
-            st.success("✅ Ready! Navigate to **Summary Analysis** →")
+            # Show source status if available
+            if retrieval_info.get('source_status'):
+                with st.expander("📊 Retrieval Source Status"):
+                    for source, status in retrieval_info['source_status'].items():
+                        icon = "✅" if status == "ok" else "⚠️" if status == "empty" else "❌"
+                        st.write(f"{icon} **{source.upper()}**: {status}")
+                    
+                    # Show warnings if any
+                    if retrieval_info.get('warnings'):
+                        st.warning("⚠️ **Warnings:**\n" + "\n".join(retrieval_info['warnings']))
+            
+            # Display papers or empty state
+            if papers:
+                for i, paper in enumerate(papers, 1):
+                    with st.expander(f"📄 {i}. {paper['title']}", expanded=False):
+                        col1, col2 = st.columns([3, 1])
+                        
+                        with col1:
+                            st.write(f"**Source:** {paper.get('source', 'unknown').upper()}")
+                            st.write(f"**Authors:** {paper['authors_str']}")
+                            st.write(f"**Published:** {paper['published']}")
+                            st.write(f"**Category:** {paper['primary_category']}")
+                            st.write(f"**Abstract:** {paper['abstract'][:300]}...")
+                            if paper.get('pdf_url'):
+                                st.write(f"[📥 PDF]({paper['pdf_url']})")
+                        
+                        with col2:
+                            relevance_pct = paper.get('relevance', 0.5) * 100
+                            color = "🟢" if relevance_pct > 70 else "🟡" if relevance_pct > 50 else "🟠"
+                            st.metric("Relevance", f"{relevance_pct:.0f}%", color)
+                            if paper.get('citations'):
+                                st.metric("Citations", paper['citations'])
+                
+                st.markdown("---")
+                st.success("✅ Ready! Navigate to **Summary Analysis** →")
+            else:
+                st.warning("📭 No papers retrieved. This may be due to:")
+                st.info("""
+                - Rate limiting from API sources
+                - Very specific/niche keywords
+                - API connection issues
+                
+                **Try:**
+                - Use broader keywords
+                - Reduce number of papers
+                - Check internet connection
+                - Wait a moment and retry (rate limits reset)
+                """)
+    
     
     def summary_analysis_page(self):
         st.markdown('<div class="main-header">📊 Summary Analysis</div>', unsafe_allow_html=True)

@@ -11,7 +11,33 @@ export type Paper = {
   query_used?: string;
   retrieved_at?: string;
   relevance_score?: number;
+  doi?: string;
+  url?: string;
+  citations?: number;
+  source?: string;
   [key: string]: unknown;
+};
+
+export type RetrieveResponse = {
+  papers: Paper[];
+  domain: string;
+  source_status: Record<string, string>;
+  total: number;
+  query: string;
+  warnings?: string[];
+};
+
+export type KeywordItem = {
+  text: string;
+  score: number;
+  type: string;
+};
+
+export type SearchStrategy = {
+  max_results: number;
+  use_multi_query: boolean;
+  sources: string[];
+  recommended_top_keywords: number;
 };
 
 export type QueryResult = {
@@ -19,6 +45,30 @@ export type QueryResult = {
   keywords: string[];
   subtopics: Record<string, string[]>;
   complexity_analysis: Record<string, unknown>;
+  intent?: string;
+  intent_confidence?: number;
+  sub_queries?: string[];
+  synonyms?: Record<string, string[]>;
+  domain_specificity_score?: number;
+  scope?: string;
+  search_strategy?: SearchStrategy;
+  keyword_details?: KeywordItem[];
+  elapsed_ms?: number;
+};
+
+export type KeywordExtractRequest = {
+  text: string;
+  top_n?: number;
+  use_llm?: boolean;
+  expand_acronyms?: boolean;
+  return_synonyms?: boolean;
+};
+
+export type KeywordExtractResponse = {
+  keywords: KeywordItem[];
+  synonyms: Record<string, string[]>;
+  provider: string;
+  elapsed_ms: number;
 };
 
 export type ComprehensiveSummary = {

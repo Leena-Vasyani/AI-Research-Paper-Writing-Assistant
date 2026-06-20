@@ -27,6 +27,7 @@ except Exception:
     _llm_chat = None  # type: ignore[assignment]
 
 from core_agents.query_agent import ScientificQueryAgent
+from core_agents.keyword_agent import KeywordExtractionAgent
 from core_agents.retrieval_agent import PaperRetrievalAgent
 from core_agents.summarization_agent import PaperSummarizationAgent
 from core_agents.plagiarism_agent import PlagiarismDetectionAgent
@@ -58,6 +59,8 @@ from api.schemas import (
     ExtractTextResponse,
     GitHubToIEEERequest,
     GitHubToIEEEResponse,
+    KeywordExtractRequest,
+    KeywordExtractResponse,
     RAGQueryRequest,
     RAGQueryResponse,
     RAGSessionResponse,
@@ -79,7 +82,8 @@ app.add_middleware(
 )
 
 query_agent = ScientificQueryAgent()
-retrieval_agent = PaperRetrievalAgent()
+keyword_agent = KeywordExtractionAgent()
+retrieval_agent = PaperRetrievalAgent(keyword_agent=keyword_agent)
 summarization_agent = PaperSummarizationAgent()
 plagiarism_agent = PlagiarismDetectionAgent()
 citation_agent = CitationAgent()
@@ -451,17 +455,43 @@ def analyze_topic(req: QueryRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/keywords/extract", response_model=KeywordExtractResponse)
+def extract_keywords(req: KeywordExtractRequest) -> KeywordExtractResponse:
+    """Extract scientific keywords from text with optional LLM enrichment."""
+    try:
+        result = keyword_agent.extract(
+            text=req.text,
+            top_n=req.top_n,
+            use_llm=req.use_llm,
+            expand_acronyms=req.expand_acronyms,
+            return_synonyms=req.return_synonyms,
+        )
+        keywords = [
+            {"text": k.get("text", ""), "score": k.get("score", 0.0), "type": k.get("type", "core")}
+            for k in result.get("keywords", [])
+        ]
+        return KeywordExtractResponse(
+            keywords=keywords,
+            synonyms=result.get("synonyms") or {},
+            provider=result.get("provider", "fallback"),
+            elapsed_ms=result.get("elapsed_ms", 0),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/retrieve")
-def retrieve_papers(req: RetrieveRequest) -> List[Dict[str, Any]]:
+def retrieve_papers(req: RetrieveRequest) -> Dict[str, Any]:
     try:
         if req.use_multi_query and req.subtopics:
             return retrieval_agent.retrieve_papers_multi_query(
-                req.keywords, req.subtopics, max_results=req.max_results
+                req.keywords, req.subtopics, max_results=req.max_results, domain=req.domain
             )
         return retrieval_agent.retrieve_papers(
             req.keywords,
             max_results=req.max_results,
             sources=req.sources,
+            domain=req.domain,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -507,20 +537,34 @@ def plagiarism(req: PlagiarismRequest) -> Dict[str, Any]:
 
 
 def _extract_keywords_from_claim(claim_text: str, max_keywords: int = 8) -> List[str]:
-    words = re.findall(r"[a-zA-Z][a-zA-Z-]{2,}", claim_text.lower())
-    stopwords = {
-        "the", "and", "for", "with", "that", "this", "from", "into", "were", "was",
-        "are", "have", "has", "had", "will", "would", "could", "should", "about", "their",
-        "there", "which", "while", "where", "when", "than", "then", "also", "using", "used",
-        "use", "over", "under", "between", "among", "research", "study", "studies", "paper",
-        "find", "shows", "show", "found", "suggest", "suggests", "indicate", "indicates",
-    }
-    counts: Dict[str, int] = {}
-    for word in words:
-        if word in stopwords:
-            continue
-        counts[word] = counts.get(word, 0) + 1
-    return [w for w, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:max_keywords]]
+    """Use KeywordExtractionAgent for consistent, high-quality keyword extraction."""
+    try:
+        result = keyword_agent.extract(
+            claim_text,
+            top_n=max_keywords,
+            use_llm=True,
+            expand_acronyms=True,
+            return_synonyms=False,
+        )
+        keywords = result.get("keywords", [])
+        return [k["text"] for k in keywords if k.get("text")]
+    except Exception as exc:
+        print(f"   [!] Keyword agent extraction failed in claim helper: {exc}")
+        # Fallback to simple regex extraction
+        words = re.findall(r"[a-zA-Z][a-zA-Z-]{2,}", claim_text.lower())
+        stopwords = {
+            "the", "and", "for", "with", "that", "this", "from", "into", "were", "was",
+            "are", "have", "has", "had", "will", "would", "could", "should", "about", "their",
+            "there", "which", "while", "where", "when", "than", "then", "also", "using", "used",
+            "use", "over", "under", "between", "among", "research", "study", "studies", "paper",
+            "find", "shows", "show", "found", "suggest", "suggests", "indicate", "indicates",
+        }
+        counts: Dict[str, int] = {}
+        for word in words:
+            if word in stopwords:
+                continue
+            counts[word] = counts.get(word, 0) + 1
+        return [w for w, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:max_keywords]]
 
 
 @app.post("/api/citation/suggest", response_model=CitationSuggestResponse)
@@ -543,10 +587,11 @@ def suggest_citation(req: CitationSuggestRequest) -> CitationSuggestResponse:
                 max_keywords=8,
             )
             if keywords:
-                papers = retrieval_agent.retrieve_papers(
+                result = retrieval_agent.retrieve_papers(
                     keywords,
                     max_results=req.retrieve_max_results,
                 )
+                papers = result.get("papers", [])
             else:
                 notes.append("No usable keywords found for retrieval.")
 
