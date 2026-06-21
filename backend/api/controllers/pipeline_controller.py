@@ -85,7 +85,7 @@ def run_stage(stage: str, state: Dict[str, Any]) -> Dict[str, Any]:
     base.update(state)  # type: ignore[arg-type]
 
     update = STAGE_FNS[stage](base) or {}
-
+    
     merged: Dict[str, Any] = dict(base)
     for key, value in update.items():
         if key in ("warnings", "errors") and isinstance(value, list):
