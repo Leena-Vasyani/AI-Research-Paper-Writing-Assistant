@@ -55,6 +55,28 @@ class FormatterAgentTest(unittest.TestCase):
         # cited sections preferred over raw draft sections
         self.assertIn("Abstract", out["sections"])
 
+    def test_latex_renders_table_and_figure_floats(self):
+        out = self.agent.format(self.draft, self.blueprint, output_formats=("latex",))
+        latex = out["formats"]["latex"]
+        # blueprint puts a table+plot on Results and a figure on Methodology
+        self.assertIn("\\begin{table}", latex)
+        self.assertIn("\\begin{figure}", latex)
+        self.assertIn("\\caption{", latex)
+
+    def test_latex_uses_cited_sections_and_formatted_refs(self):
+        citation_result = {
+            "cited_draft": {"Methodology": "We use a method [1].", "Abstract": "An abstract."},
+            "references": [{"reference": '[1] A. B, "Prior Work," 2022.'}],
+        }
+        # draft has a stale pre-citation latex that must NOT be reused
+        draft = dict(self.draft, latex="\\documentclass{article}STALE")
+        out = self.agent.format(draft, self.blueprint, citation_result=citation_result, output_formats=("latex",))
+        latex = out["formats"]["latex"]
+        self.assertNotIn("STALE", latex)          # fresh render, not the draft's latex
+        self.assertIn("[1]", latex)               # inline citation preserved
+        self.assertIn("thebibliography", latex)
+        self.assertIn("Prior Work", latex)        # formatted reference present
+
     def test_export_ready_reflects_grounding(self):
         out = self.agent.format(
             self.draft, self.blueprint,

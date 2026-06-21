@@ -175,7 +175,34 @@ export function ReviewReport({
 
 export function ManuscriptView({ doc }: { doc?: PipelineFinalDocument }) {
   const [tab, setTab] = useState<"markdown" | "latex">("markdown");
+  const [copied, setCopied] = useState(false);
   if (!doc) return <p className="text-sm text-zinc-500">No manuscript yet.</p>;
+
+  const content = doc.formats?.[tab] ?? "";
+  const ext = tab === "latex" ? "tex" : "md";
+  const filename = `${(doc.title || "manuscript").replace(/[^a-z0-9]+/gi, "_").slice(0, 60) || "manuscript"}.${ext}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+  const download = () => {
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
@@ -192,14 +219,28 @@ export function ManuscriptView({ doc }: { doc?: PipelineFinalDocument }) {
             {t}
           </button>
         ))}
-        <span className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={copy}
+            disabled={!content}
+            className="rounded-lg bg-zinc-800/60 px-3 py-1 text-xs text-zinc-200 transition hover:bg-zinc-700/70 disabled:opacity-40"
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+          <button
+            onClick={download}
+            disabled={!content}
+            className="rounded-lg bg-zinc-800/60 px-3 py-1 text-xs text-zinc-200 transition hover:bg-zinc-700/70 disabled:opacity-40"
+          >
+            Download .{ext}
+          </button>
           <Badge tone={doc.export_ready ? "success" : "warning"}>
             {doc.export_ready ? "export ready" : "grounding incomplete"}
           </Badge>
-        </span>
+        </div>
       </div>
       <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs leading-relaxed text-zinc-200">
-        {doc.formats?.[tab] ?? "(no content)"}
+        {content || "(no content)"}
       </pre>
       {doc.figures && doc.figures.length > 0 && (
         <div className="mt-3 text-xs text-zinc-400">

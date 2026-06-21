@@ -4,6 +4,7 @@ import { useState } from "react";
 import Badge from "@/components/Badge";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
+import { ManuscriptView } from "@/components/pipeline/PipelineCards";
 import { api } from "@/lib/api";
 import type { PipelineResult } from "@/lib/types";
 
@@ -25,7 +26,6 @@ export default function PipelinePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
-  const [docTab, setDocTab] = useState<"markdown" | "latex">("markdown");
 
   const run = async () => {
     if (!topic.trim()) {
@@ -240,41 +240,8 @@ export default function PipelinePage() {
 
           {/* Final document */}
           {doc && (
-            <SectionCard
-              title="Manuscript"
-              description={`${doc.title ?? ""}`}
-              actions={
-                <Badge tone={doc.export_ready ? "success" : "warning"}>
-                  {doc.export_ready ? "export ready" : "grounding incomplete"}
-                </Badge>
-              }
-            >
-              <div className="mb-3 flex gap-2">
-                {(["markdown", "latex"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setDocTab(t)}
-                    className={`rounded-lg px-3 py-1 text-xs transition ${
-                      docTab === t
-                        ? "bg-indigo-500/25 text-indigo-100"
-                        : "bg-zinc-800/60 text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-              <pre className="max-h-[480px] overflow-auto rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs leading-relaxed text-zinc-200 whitespace-pre-wrap">
-                {doc.formats?.[docTab] ?? "(no content)"}
-              </pre>
-              {doc.figures && doc.figures.length > 0 && (
-                <div className="mt-3 text-xs text-zinc-400">
-                  <span className="text-zinc-500">Figures: </span>
-                  {doc.figures
-                    .map((f) => `${f.type} (${f.section})`)
-                    .join(" · ")}
-                </div>
-              )}
+            <SectionCard title="Manuscript" description={`${doc.title ?? ""}`}>
+              <ManuscriptView doc={doc} />
             </SectionCard>
           )}
         </>

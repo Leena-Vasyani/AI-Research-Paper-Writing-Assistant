@@ -17,6 +17,7 @@ but off by default so the formatter performs no LLM calls in the default path.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -53,9 +54,12 @@ class FormatterAgent:
 
         artifacts: Dict[str, Any] = {}
         if "latex" in output_formats:
-            artifacts["latex"] = draft.get("latex") or self._to_latex(
-                title, sections, blueprint, references
-            )
+            # Render fresh from the CITED sections + formatted references + figures
+            # (the draft's own latex was built pre-citation, so it lacks inline
+            # citations, the formatted bibliography, and figure/table floats).
+            artifacts["latex"] = self._to_latex(
+                title, sections, blueprint, references, figures
+            ) or draft.get("latex", "")
         if "markdown" in output_formats:
             artifacts["markdown"] = self._to_markdown(title, sections, references, figures)
         if "docx" in output_formats:
@@ -168,14 +172,21 @@ class FormatterAgent:
     def _to_latex(
         self, title: str, sections: Dict[str, str],
         blueprint: Dict[str, Any], references: List[str],
+        figures: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
+        figures = figures or []
         venue = blueprint.get("target_venue", "IEEE")
         documentclass = "IEEEtran" if "ieee" in str(venue).lower() else "article"
         spec_roles = {s.get("name", ""): s.get("role", "body")
                       for s in blueprint.get("sections", [])}
+        # Group figure/table directives by the section they belong to.
+        floats_by_section: Dict[str, List[Dict[str, Any]]] = {}
+        for f in figures:
+            floats_by_section.setdefault(f.get("section", ""), []).append(f)
+
         lines = [
             f"\\documentclass[conference]{{{documentclass}}}",
-            "\\usepackage{graphicx}\n\\usepackage{cite}",
+            "\\usepackage{graphicx}\n\\usepackage{booktabs}\n\\usepackage{cite}",
             "\\begin{document}",
             f"\\title{{{_tex(title)}}}",
             "\\maketitle",
@@ -185,6 +196,10 @@ class FormatterAgent:
                 lines.append(f"\\begin{{abstract}}\n{_tex(text)}\n\\end{{abstract}}")
             else:
                 lines.append(f"\\section{{{_tex(name)}}}\n{_tex(text)}")
+                # Emit the figure/table floats that belong to this section.
+                for fl in floats_by_section.get(name, []):
+                    lines.append(self._latex_float(fl))
+
         if references:
             lines.append("\\begin{thebibliography}{99}")
             for i, ref in enumerate(references, 1):
@@ -192,6 +207,28 @@ class FormatterAgent:
             lines.append("\\end{thebibliography}")
         lines.append("\\end{document}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _latex_float(fig: Dict[str, Any]) -> str:
+        """Render a blueprint visualization directive as a LaTeX float
+        (table → tabular skeleton; figure/plot → includegraphics placeholder)."""
+        kind = (fig.get("type") or "figure").lower()
+        caption = _tex(fig.get("description", "") or kind.title())
+        label = re.sub(r"[^a-z0-9]+", "-", caption.lower())[:32].strip("-") or kind
+        if kind == "table":
+            return (
+                "\\begin{table}[t]\n\\centering\n\\caption{" + caption + "}\n"
+                "\\label{tab:" + label + "}\n"
+                "\\begin{tabular}{lcc}\n\\toprule\n"
+                "Method & Metric A & Metric B \\\\\n\\midrule\n"
+                "Baseline & -- & -- \\\\\nOurs & -- & -- \\\\\n"
+                "\\bottomrule\n\\end{tabular}\n\\end{table}"
+            )
+        return (
+            "\\begin{figure}[t]\n\\centering\n"
+            "\\includegraphics[width=\\columnwidth]{" + label + ".png}\n"
+            "\\caption{" + caption + "}\n\\label{fig:" + label + "}\n\\end{figure}"
+        )
 
 
 # ---------------------------------------------------------------------------
