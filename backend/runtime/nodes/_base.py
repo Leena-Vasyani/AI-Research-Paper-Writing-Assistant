@@ -80,6 +80,12 @@ def topic_mining_agent():
 
 
 @lru_cache(maxsize=1)
+def qa_agent():
+    from backend.core_agents.qa_agent import QAAgent
+    return QAAgent()
+
+
+@lru_cache(maxsize=1)
 def outline_agent():
     from backend.core_agents.outline_agent import OutlineAgent
     return OutlineAgent()

@@ -7,6 +7,7 @@ import type {
   PipelineBlueprint,
   PipelineFinalDocument,
   PipelineReview,
+  QAResult,
 } from "@/lib/types";
 
 export function scoreColor(v: number): string {
@@ -71,6 +72,53 @@ export function ThemesView({ themes }: { themes?: Record<string, unknown> }) {
           {gaps.join("; ")}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Research Q&A ────────────────────────────────────────────────────────────
+
+export function QAView({ qa }: { qa?: QAResult }) {
+  const pairs = qa?.qa_pairs ?? [];
+  if (pairs.length === 0)
+    return (
+      <p className="text-sm text-zinc-500">
+        No research questions generated yet.
+      </p>
+    );
+  return (
+    <div className="space-y-2">
+      {qa?.method && (
+        <div className="text-xs text-zinc-500">generator: {qa.method}</div>
+      )}
+      {pairs.map((p, i) => (
+        <details
+          key={i}
+          className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2"
+          open={i === 0}
+        >
+          <summary className="cursor-pointer text-sm font-medium text-zinc-100">
+            <span className="mr-1.5 text-indigo-300">Q{i + 1}.</span>
+            {p.question}
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">
+            {p.answer || "(no grounded answer)"}
+          </p>
+          {p.sources && p.sources.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {p.sources.map((s, j) => (
+                <span
+                  key={j}
+                  className="rounded-md border border-zinc-800/80 bg-zinc-900/60 px-2 py-0.5 text-[11px] text-zinc-400"
+                  title={s}
+                >
+                  {s.length > 48 ? `${s.slice(0, 48)}…` : s}
+                </span>
+              ))}
+            </div>
+          )}
+        </details>
+      ))}
     </div>
   );
 }

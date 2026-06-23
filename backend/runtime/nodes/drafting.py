@@ -31,6 +31,7 @@ def drafting_node(state: PipelineState) -> Dict[str, Any]:
         raw_materials=state.get("raw_materials", {}),
         constraints=state.get("constraints", {}),
         review_feedback=review or None,
+        qa=state.get("qa", {}),
     )
 
     draft: Dict[str, Any] = {

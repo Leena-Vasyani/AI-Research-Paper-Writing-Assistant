@@ -78,9 +78,11 @@ class DraftingAgent:
         raw_materials: Optional[Dict[str, Any]] = None,
         constraints: Optional[Dict[str, Any]] = None,
         review_feedback: Optional[Dict[str, Any]] = None,
+        qa: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         corpus = corpus or []
         raw_materials = raw_materials or {}
+        qa = qa or {}
         topic = topic or blueprint.get("topic", "")
         venue = blueprint.get("target_venue", "IEEE")
         sections_spec = blueprint.get("sections", [])
@@ -111,13 +113,18 @@ class DraftingAgent:
         glossary = self._build_glossary(blueprint, corpus)
         shared_context = self._build_shared_context(blueprint, topic, glossary)
 
+        # Pre-render the research-level Q&A grounding once; injected only into the
+        # Introduction / lit-review sections (see _qualifies_for_qa).
+        qa_block = self._build_qa_block(qa)
+
         # --- Parallel Section Dispatch for body sections ---
         def _work(spec: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any], List[Dict[str, Any]]]:
             name = spec.get("name", "Section")
             refs = self._retrieve_refs(spec, corpus, index)
             data = self._extract_data(spec, raw_materials)
             text = self._generate_section(
-                spec, refs, data, topic, context=shared_context, feedback=review_feedback
+                spec, refs, data, topic, context=shared_context, feedback=review_feedback,
+                qa_block=qa_block if self._qualifies_for_qa(spec) else "",
             )
             text, meta = self._verify_and_refine(spec, text, refs)
             return name, text, meta, refs
@@ -267,10 +274,11 @@ class DraftingAgent:
     def _generate_section(
         self, spec: Dict[str, Any], refs: List[Dict[str, Any]], data: str,
         topic: str, context: str = "", feedback: Optional[Dict[str, Any]] = None,
+        qa_block: str = "",
     ) -> str:
         target = spec.get("target_words") or self.words_per_section
         if self.use_llm:
-            text = self._llm_section(spec, refs, data, topic, context, target, feedback)
+            text = self._llm_section(spec, refs, data, topic, context, target, feedback, qa_block)
             if text:
                 return text
             if self.use_finetuned_fallback:
@@ -326,8 +334,40 @@ class DraftingAgent:
             lines.append("Use this terminology consistently: " + ", ".join(glossary))
         return "\n".join(lines)
 
+    # ------------------------------------------------------------------
+    # Q&A grounding (Introduction / lit-review only)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _qualifies_for_qa(spec: Dict[str, Any]) -> bool:
+        """Inject Q&A grounding only into Introduction and lit-review sections."""
+        name = (spec.get("name", "") or "").strip().lower()
+        role = spec.get("role", "body")
+        return "introduction" in name or role == "macro_lit_review"
+
+    def _build_qa_block(self, qa: Optional[Dict[str, Any]]) -> str:
+        """Render the QAAgent output into a compact prompt block (capped)."""
+        pairs = (qa or {}).get("qa_pairs") or []
+        if not pairs:
+            return ""
+        lines = [
+            "Key research questions this work addresses, with evidence from the "
+            "literature (weave these into the narrative; do not list them verbatim):"
+        ]
+        for p in pairs:
+            q = (p.get("question", "") or "").strip()
+            a = (p.get("answer", "") or "").strip()
+            if not q:
+                continue
+            srcs = ", ".join(s for s in (p.get("sources") or []) if s)[:200]
+            lines.append(f"- Q: {q}")
+            if a:
+                lines.append(f"  A: {a}" + (f" (sources: {srcs})" if srcs else ""))
+        block = "\n".join(lines)
+        return block[:1500]
+
     def _llm_section(
-        self, spec, refs, data, topic, context, target, feedback,
+        self, spec, refs, data, topic, context, target, feedback, qa_block="",
     ) -> Optional[str]:
         model_fn = self._model_for_section(spec)
         if model_fn is None:
@@ -343,6 +383,7 @@ class DraftingAgent:
         if feedback and feedback.get("major_concerns"):
             fb = "\nAddress these review concerns: " + "; ".join(map(str, feedback["major_concerns"]))
         ctx = f"\nManuscript plan & context:\n{context[:2000]}" if context else ""
+        qa = f"\n{qa_block}\n" if qa_block else ""
         prompt = (
             f"You are writing ONE section of a single coherent academic paper on \"{topic}\".\n"
             f"{ctx}\n"
@@ -352,6 +393,7 @@ class DraftingAgent:
             f"sections (see the section plan above). Use formal academic prose and cite "
             f"the sources below by author/title where relevant.\n"
             f"Relevant sources:\n{ref_block}\n"
+            f"{qa}"
             f"{('Experimental data:\\n' + data) if data else ''}{fb}\n"
             f"Return ONLY the section prose (no markdown headings)."
         )

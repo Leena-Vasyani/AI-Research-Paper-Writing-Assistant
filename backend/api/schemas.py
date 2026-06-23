@@ -239,6 +239,25 @@ class GitHubToIEEEResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ── Q&A Agent (research-level questions + grounded answers) ───────────
+
+class QARequest(BaseModel):
+    topic: str = Field(..., description="Research topic / user query")
+    corpus: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Fetched papers (title/abstract/...)"
+    )
+    themes: Dict[str, Any] = Field(
+        default_factory=dict, description="Optional mined themes/gaps from topic mining"
+    )
+    max_questions: int = Field(6, description="Number of questions to generate")
+
+
+class QAResponse(BaseModel):
+    questions: List[str] = Field(default_factory=list)
+    qa_pairs: List[Dict[str, Any]] = Field(default_factory=list)
+    method: str = ""
+
+
 # ── RAG Document Chat ─────────────────────────────────────────────────
 
 class RAGQueryRequest(BaseModel):

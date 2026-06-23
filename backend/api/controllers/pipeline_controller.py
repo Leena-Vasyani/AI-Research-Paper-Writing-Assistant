@@ -18,6 +18,7 @@ from backend.runtime.state import PipelineState, new_state
 STAGE_FNS = {
     "search": nodes.search_node,
     "topic_mining": nodes.topic_mining_node,
+    "qa": nodes.qa_node,
     "outline": nodes.outline_node,
     "drafting": nodes.drafting_node,
     "review": nodes.review_node,

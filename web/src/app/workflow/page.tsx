@@ -9,6 +9,7 @@ import {
   BlueprintView,
   CorpusView,
   ManuscriptView,
+  QAView,
   ReviewReport,
   ThemesView,
 } from "@/components/pipeline/PipelineCards";
@@ -16,6 +17,7 @@ import {
 type StepId =
   | "search"
   | "topic_mining"
+  | "qa"
   | "outline"
   | "drafting"
   | "review"
@@ -24,10 +26,11 @@ type StepId =
 const STEPS: { id: StepId; title: string; description: string }[] = [
   { id: "search", title: "1 · Search", description: "Discover, rank & dedupe literature; build the citation graph." },
   { id: "topic_mining", title: "2 · Topic Mining", description: "Cluster the corpus into themes and surface coverage gaps." },
-  { id: "outline", title: "3 · Outline", description: "Generate the JSON blueprint that drives drafting." },
-  { id: "drafting", title: "4 · Drafting", description: "Write sections grounded in retrieved sources; render LaTeX." },
-  { id: "review", title: "5 · Review", description: "Independent multi-critic peer review with scores." },
-  { id: "finalize", title: "6 · Citation & Format", description: "Grounding gate, then assemble the exportable manuscript." },
+  { id: "qa", title: "3 · Research Q&A", description: "Pose research-level questions and answer them from the corpus — grounds the Introduction & Related Work." },
+  { id: "outline", title: "4 · Outline", description: "Generate the JSON blueprint that drives drafting." },
+  { id: "drafting", title: "5 · Drafting", description: "Write sections grounded in retrieved sources; render LaTeX." },
+  { id: "review", title: "6 · Review", description: "Independent multi-critic peer review with scores." },
+  { id: "finalize", title: "7 · Citation & Format", description: "Grounding gate, then assemble the exportable manuscript." },
 ];
 
 function getErrorMessage(e: unknown): string {
@@ -48,6 +51,7 @@ export default function WorkflowPage() {
   const done: Record<StepId, boolean> = {
     search: !!state?.corpus,
     topic_mining: !!state?.themes && Object.keys(state.themes).length > 0,
+    qa: !!state?.qa && Object.keys(state.qa).length > 0,
     outline: !!state?.blueprint,
     drafting: !!state?.draft?.sections,
     review: !!state?.review,
@@ -97,7 +101,7 @@ export default function WorkflowPage() {
 
       const res = await callStage(step, base);
       setState(res);
-      const order: StepId[] = ["search", "topic_mining", "outline", "drafting", "review", "finalize"];
+      const order: StepId[] = ["search", "topic_mining", "qa", "outline", "drafting", "review", "finalize"];
       const next = order[order.indexOf(step) + 1];
       if (next) setOpenStep(next);
     } catch (e: unknown) {
@@ -120,6 +124,8 @@ export default function WorkflowPage() {
         );
       case "topic_mining":
         return <ThemesView themes={state?.themes} />;
+      case "qa":
+        return <QAView qa={state?.qa} />;
       case "outline":
         return <BlueprintView blueprint={state?.blueprint} />;
       case "drafting":
@@ -136,7 +142,7 @@ export default function WorkflowPage() {
       <PageHeader
         eyebrow="Multi-agent runtime"
         title="Workflow"
-        subtitle="Step through the orchestrated pipeline — Search → Topic Mining → Outline → Drafting → Review → Citation & Format — reviewing each agent's output before advancing."
+        subtitle="Step through the orchestrated pipeline — Search → Topic Mining → Research Q&A → Outline → Drafting → Review → Citation & Format — reviewing each agent's output before advancing."
       />
 
       <section className="rounded-[2rem] bg-zinc-900/45 p-6 ring-1 ring-zinc-800/60 backdrop-blur-xl">
@@ -200,7 +206,8 @@ export default function WorkflowPage() {
           const canRun =
             s.id === "search" ||
             (s.id === "topic_mining" && done.search) ||
-            (s.id === "outline" && done.topic_mining) ||
+            (s.id === "qa" && done.topic_mining) ||
+            (s.id === "outline" && done.qa) ||
             (s.id === "drafting" && done.outline) ||
             (s.id === "review" && done.drafting) ||
             (s.id === "finalize" && done.review);

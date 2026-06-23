@@ -42,6 +42,18 @@ export type PipelineBlueprint = {
   meta?: Record<string, unknown>;
 };
 
+export type QAPair = {
+  question: string;
+  answer: string;
+  sources?: string[];
+};
+
+export type QAResult = {
+  questions?: string[];
+  qa_pairs?: QAPair[];
+  method?: string;
+};
+
 export type PipelineReview = {
   scores?: Record<string, number>;
   mean_score?: number;
@@ -69,6 +81,7 @@ export type PipelineResult = {
   status?: string;
   corpus?: Paper[];
   themes?: Record<string, unknown>;
+  qa?: QAResult;
   citation_graph?: Record<string, unknown>;
   blueprint?: PipelineBlueprint;
   draft?: {

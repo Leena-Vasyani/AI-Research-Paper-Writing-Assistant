@@ -10,6 +10,7 @@ import type {
   PlagiarismReport,
   PipelineResult,
   PseudocodeResult,
+  QAResult,
   QueryResult,
   RetrieveResponse,
   CitationReport,
@@ -94,6 +95,16 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   pipelineStages: () => request<{ stages: string[] }>("/api/pipeline/stages"),
+  qaGenerate: (payload: {
+    topic: string;
+    corpus?: Paper[];
+    themes?: Record<string, unknown>;
+    max_questions?: number;
+  }) =>
+    request<QAResult>("/api/qa/generate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   runStage: (payload: { stage: string; state: Record<string, unknown> }) =>
     request<PipelineResult>("/api/pipeline/stage", {
       method: "POST",

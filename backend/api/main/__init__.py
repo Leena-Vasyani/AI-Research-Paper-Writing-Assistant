@@ -61,6 +61,8 @@ from api.schemas import (
     GitHubToIEEEResponse,
     KeywordExtractRequest,
     KeywordExtractResponse,
+    QARequest,
+    QAResponse,
     RAGQueryRequest,
     RAGQueryResponse,
     RAGSessionResponse,
@@ -1190,6 +1192,28 @@ async def rag_upload(
                 pass
 
         return RAGUploadResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/qa/generate", response_model=QAResponse)
+def qa_generate(req: QARequest) -> QAResponse:
+    """Generate research-level questions + grounded answers from fetched papers."""
+    try:
+        if not req.topic.strip() and not req.corpus:
+            raise HTTPException(
+                status_code=400, detail="topic or corpus is required"
+            )
+        from backend.runtime.nodes._base import qa_agent
+        result = qa_agent().generate(
+            req.topic,
+            req.corpus,
+            themes=req.themes,
+            constraints={"max_questions": req.max_questions},
+        )
+        return QAResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

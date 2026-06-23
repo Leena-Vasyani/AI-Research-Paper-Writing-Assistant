@@ -3,7 +3,7 @@ LangGraph pipeline builder.
 
 Wires the agent nodes into a state machine:
 
-    START -> search -> topic_mining -> outline -> drafting -> review
+    START -> search -> topic_mining -> qa -> outline -> drafting -> review
     review --(revise)--> drafting        (conditional revision loop)
     review --(proceed)--> citation -> formatter -> END
 
@@ -43,6 +43,7 @@ def build_pipeline_graph():
 
     graph.add_node("search", nodes.search_node)
     graph.add_node("topic_mining", nodes.topic_mining_node)
+    graph.add_node("qa", nodes.qa_node)
     graph.add_node("outline", nodes.outline_node)
     graph.add_node("drafting", nodes.drafting_node)
     graph.add_node("review", nodes.review_node)
@@ -51,7 +52,8 @@ def build_pipeline_graph():
 
     graph.add_edge(START, "search")
     graph.add_edge("search", "topic_mining")
-    graph.add_edge("topic_mining", "outline")
+    graph.add_edge("topic_mining", "qa")
+    graph.add_edge("qa", "outline")
     graph.add_edge("outline", "drafting")
     graph.add_edge("drafting", "review")
     graph.add_conditional_edges(

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Badge from "@/components/Badge";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
-import { ManuscriptView } from "@/components/pipeline/PipelineCards";
+import { ManuscriptView, QAView } from "@/components/pipeline/PipelineCards";
 import { api } from "@/lib/api";
 import type { PipelineResult } from "@/lib/types";
 
@@ -52,6 +52,7 @@ export default function PipelinePage() {
 
   const review = result?.review;
   const blueprint = result?.blueprint;
+  const qa = result?.qa;
   const doc = result?.final_document;
 
   return (
@@ -59,7 +60,7 @@ export default function PipelinePage() {
       <PageHeader
         eyebrow="Multi-agent runtime"
         title="Research Pipeline"
-        subtitle="Search → Topic Mining → Outline → Drafting → Review → Citation gate → Formatter, orchestrated end-to-end with a revision loop."
+        subtitle="Search → Topic Mining → Research Q&A → Outline → Drafting → Review → Citation gate → Formatter, orchestrated end-to-end with a revision loop."
       />
 
       <SectionCard
@@ -200,6 +201,17 @@ export default function PipelinePage() {
                   </div>
                 </div>
               </div>
+            </SectionCard>
+          )}
+
+          {/* Research Q&A — research-level questions + grounded answers */}
+          {qa && (qa.qa_pairs?.length ?? 0) > 0 && (
+            <SectionCard
+              title="Research Q&A"
+              description="Research-level questions answered from the corpus — grounds the Introduction & Related Work."
+              actions={<Badge>{`${qa.qa_pairs?.length ?? 0} Q&A`}</Badge>}
+            >
+              <QAView qa={qa} />
             </SectionCard>
           )}
 

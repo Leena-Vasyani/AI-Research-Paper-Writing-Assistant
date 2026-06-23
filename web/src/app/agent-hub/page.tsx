@@ -10,6 +10,7 @@ import {
   BlueprintView,
   CorpusView,
   ManuscriptView,
+  QAView,
   ReviewReport,
   ThemesView,
 } from "@/components/pipeline/PipelineCards";
@@ -17,6 +18,7 @@ import {
 type Stage =
   | "search"
   | "topic_mining"
+  | "qa"
   | "outline"
   | "drafting"
   | "review"
@@ -35,6 +37,7 @@ const AGENTS: {
 }[] = [
   { id: "search", title: "Search", description: "Discover, rank & dedupe literature; build the citation graph.", requires: [], outputs: ["corpus", "citation_graph"] },
   { id: "topic_mining", title: "Topic Mining", description: "Cluster the corpus into themes and gaps.", requires: ["corpus"], outputs: ["themes"] },
+  { id: "qa", title: "Research Q&A", description: "Pose research-level questions and answer them from the corpus (feeds the Introduction & Related Work).", requires: ["corpus"], outputs: ["qa"] },
   { id: "outline", title: "Outline", description: "Generate the JSON blueprint.", requires: [], outputs: ["blueprint"] },
   { id: "drafting", title: "Drafting", description: "Write sections (FAISS-grounded) + render LaTeX.", requires: ["blueprint"], outputs: ["draft", "revision_count"] },
   { id: "review", title: "Review", description: "Multi-critic peer review with scores.", requires: ["draft"], outputs: ["review"] },
@@ -114,6 +117,8 @@ export default function AgentHubPage() {
         return <CorpusView corpus={state.corpus} />;
       case "topic_mining":
         return <ThemesView themes={state.themes} />;
+      case "qa":
+        return <QAView qa={state.qa} />;
       case "outline":
         return <BlueprintView blueprint={state.blueprint} />;
       case "drafting":
@@ -129,7 +134,7 @@ export default function AgentHubPage() {
 
   const stateSummary = useMemo(
     () =>
-      (["corpus", "themes", "blueprint", "draft", "review", "final_document"] as (keyof PipelineResult)[])
+      (["corpus", "themes", "qa", "blueprint", "draft", "review", "final_document"] as (keyof PipelineResult)[])
         .filter(hasKey)
         .join(", ") || "empty",
     // eslint-disable-next-line react-hooks/exhaustive-deps

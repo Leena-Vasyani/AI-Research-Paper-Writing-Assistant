@@ -42,6 +42,7 @@ class PipelineState(TypedDict, total=False):
     corpus: List[Dict[str, Any]]        # Search: retrieved + ranked papers
     citation_graph: Dict[str, Any]      # Search: shared knowledge source
     themes: Dict[str, Any]              # Topic Mining: clusters / taxonomy / gaps
+    qa: Dict[str, Any]                  # Q&A Agent: research questions + grounded answers
     blueprint: Dict[str, Any]           # Outline: JSON section plan
     draft: Dict[str, Any]               # Drafting: per-section prose + latex
     review: Dict[str, Any]              # Review: scores, concerns, recommendation
@@ -78,6 +79,7 @@ def new_state(
         corpus=[],
         citation_graph={},
         themes={},
+        qa={},
         blueprint={},
         draft={},
         review={},
