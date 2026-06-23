@@ -340,10 +340,18 @@ class DraftingAgent:
 
     @staticmethod
     def _qualifies_for_qa(spec: Dict[str, Any]) -> bool:
-        """Inject Q&A grounding only into Introduction and lit-review sections."""
+        """Inject Q&A grounding only into Introduction and lit-review sections.
+
+        The Outline agent tags Introduction as ``macro_lit_review`` and Related
+        Work / Background as ``micro_lit_review``; both count as lit-review.
+        """
         name = (spec.get("name", "") or "").strip().lower()
         role = spec.get("role", "body")
-        return "introduction" in name or role == "macro_lit_review"
+        return (
+            "introduction" in name
+            or "related work" in name
+            or role in ("macro_lit_review", "micro_lit_review")
+        )
 
     def _build_qa_block(self, qa: Optional[Dict[str, Any]]) -> str:
         """Render the QAAgent output into a compact prompt block (capped)."""
