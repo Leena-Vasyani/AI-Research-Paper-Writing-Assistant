@@ -9,11 +9,13 @@ import type { PipelineResult } from "@/lib/types";
 import {
   BlueprintView,
   CorpusView,
+  DraftPreview,
   ManuscriptView,
   QAView,
   ReviewReport,
   ThemesView,
 } from "@/components/pipeline/PipelineCards";
+import HumanizePanel from "@/components/pipeline/HumanizePanel";
 
 type Stage =
   | "search"
@@ -55,11 +57,15 @@ export default function AgentHubPage() {
   const [outputType, setOutputType] = useState("research_paper");
   const [maxResults, setMaxResults] = useState(8);
 
+  const [humanizeFraction, setHumanizeFraction] = useState(0.4);
+
   const [state, setState] = useState<PipelineResult>({});
   const [loading, setLoading] = useState<Record<Stage, boolean>>({} as Record<Stage, boolean>);
   const [errors, setErrors] = useState<Record<Stage, string>>({} as Record<Stage, string>);
   const [stateText, setStateText] = useState("");
   const [stateErr, setStateErr] = useState<string | null>(null);
+  // Soft gate: the generated draft must be humanized before Review/Citation run.
+  const [draftHumanized, setDraftHumanized] = useState(false);
 
   const hasKey = (k: keyof PipelineResult): boolean => {
     const v = state[k];
@@ -70,6 +76,18 @@ export default function AgentHubPage() {
   };
 
   const runAgent = async (agent: (typeof AGENTS)[number]) => {
+    // Soft gate: don't score/ground a draft the author hasn't humanized yet.
+    if (
+      (agent.id === "review" || agent.id === "citation") &&
+      state.draft?.sections &&
+      !draftHumanized
+    ) {
+      setErrors((e) => ({
+        ...e,
+        [agent.id]: "Humanize the draft first (Drafting card) to reduce plagiarism.",
+      }));
+      return;
+    }
     setErrors((e) => ({ ...e, [agent.id]: "" }));
     setLoading((l) => ({ ...l, [agent.id]: true }));
     try {
@@ -78,9 +96,10 @@ export default function AgentHubPage() {
         topic,
         target_venue: venue,
         output_type: outputType,
-        constraints: { max_results: maxResults },
+        constraints: { max_results: maxResults, humanize_fraction: humanizeFraction },
       };
       const res = await api.runStage({ stage: agent.id, state: base });
+      if (agent.id === "drafting") setDraftHumanized(false);
       // Merge only this agent's output keys (+ warnings) so concurrent runs
       // of different agents don't overwrite each other.
       setState((prev) => {
@@ -106,6 +125,7 @@ export default function AgentHubPage() {
     try {
       const parsed = JSON.parse(stateText || "{}");
       setState(parsed);
+      setDraftHumanized(false);
     } catch {
       setStateErr("Invalid JSON");
     }
@@ -122,7 +142,26 @@ export default function AgentHubPage() {
       case "outline":
         return <BlueprintView blueprint={state.blueprint} />;
       case "drafting":
-        return <DraftPreview state={state} />;
+        if (!state.draft?.sections) return <DraftPreview draft={state.draft} />;
+        if (!draftHumanized)
+          return (
+            <HumanizePanel
+              draft={state.draft}
+              state={state}
+              fraction={humanizeFraction}
+              confirmLabel="Confirm humanization — unlock Review & Citation"
+              onConfirm={(edited) => {
+                setState((prev) => ({ ...prev, draft: { ...prev.draft, sections: edited } }));
+                setDraftHumanized(true);
+              }}
+            />
+          );
+        return (
+          <div className="space-y-2">
+            <Badge tone="success">humanized</Badge>
+            <DraftPreview draft={state.draft} />
+          </div>
+        );
       case "review":
         return <ReviewReport review={state.review} revisionCount={state.revision_count} />;
       case "citation":
@@ -199,6 +238,21 @@ export default function AgentHubPage() {
               onChange={(e) => setMaxResults(Number(e.target.value))}
             />
           </label>
+          <label className="md:col-span-2 text-sm text-zinc-300">
+            Humanization strictness ·{" "}
+            <span className="text-indigo-200">
+              rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
+            </span>
+            <input
+              type="range"
+              min={20}
+              max={60}
+              step={5}
+              value={Math.round(humanizeFraction * 100)}
+              onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
+              className="mt-2 w-full accent-indigo-400"
+            />
+          </label>
         </div>
 
         <details className="mt-4 rounded-xl border border-zinc-800/70 bg-zinc-950/40 px-3 py-2">
@@ -226,7 +280,10 @@ export default function AgentHubPage() {
                 Load current state
               </button>
               <button
-                onClick={() => setState({})}
+                onClick={() => {
+                  setState({});
+                  setDraftHumanized(false);
+                }}
                 className="rounded-lg bg-zinc-800/70 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700/70"
               >
                 Clear state
@@ -269,26 +326,6 @@ export default function AgentHubPage() {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function DraftPreview({ state }: { state: PipelineResult }) {
-  const sections = state.draft?.sections;
-  if (!sections) return <p className="text-sm text-zinc-500">No draft yet.</p>;
-  return (
-    <div className="space-y-2">
-      {state.draft?.method && (
-        <div className="text-xs text-zinc-500">generator: {state.draft.method}</div>
-      )}
-      {Object.entries(sections).map(([name, text]) => (
-        <details key={name} className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2">
-          <summary className="cursor-pointer text-sm font-medium text-zinc-100">
-            {name} <span className="text-xs text-zinc-500">· {text.split(/\s+/).length}w</span>
-          </summary>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{text}</p>
-        </details>
-      ))}
     </div>
   );
 }

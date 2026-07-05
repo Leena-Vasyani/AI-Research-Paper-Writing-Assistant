@@ -320,3 +320,40 @@ class PipelineStageRequest(BaseModel):
     state: Dict[str, Any] = Field(default_factory=dict,
                                   description="Accumulated pipeline state to run the stage on")
 
+
+# ---------------------------------------------------------------------------
+# Human-in-the-loop humanization (grammar assist + change-quota gate)
+# ---------------------------------------------------------------------------
+
+
+class GrammarCheckRequest(BaseModel):
+    text: str = Field(..., description="Passage to check for grammar issues")
+    max_issues: int = Field(8, ge=1, le=25)
+
+
+class GrammarIssue(BaseModel):
+    original_snippet: str = Field(..., description="Exact substring of the passage with the issue")
+    suggestion: str = Field(..., description="Corrected replacement for the snippet")
+    explanation: str = Field("", description="Why it is wrong / what was fixed")
+    category: str = Field("grammar", description="grammar|spelling|punctuation|style")
+    start: Optional[int] = Field(None, description="Char offset of the snippet, if located verbatim")
+    end: Optional[int] = Field(None, description="Char offset end of the snippet")
+
+
+class GrammarCheckResponse(BaseModel):
+    issues: List[GrammarIssue] = Field(default_factory=list)
+    provider: str = Field("fallback")
+
+
+class HumanizeValidateRequest(BaseModel):
+    state: Dict[str, Any] = Field(default_factory=dict,
+                                  description="Pipeline state whose draft (edited) is validated against draft.original_sections")
+    humanize_fraction: Optional[float] = Field(
+        None, ge=0.0, le=0.9, description="Override the per-section change fraction (default from draft.humanize)"
+    )
+
+
+class HumanizeValidateResponse(BaseModel):
+    passed: bool = True
+    failures: List[Dict[str, Any]] = Field(default_factory=list)
+

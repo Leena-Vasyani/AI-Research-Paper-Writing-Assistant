@@ -276,31 +276,32 @@ class PlagiarismDetectionAgent:
         print("-" * 40)
         
         section_analyses = []
-        sections_to_check = [
-            ('abstract', 'Abstract'),
-            ('introduction', 'Introduction'),
-            ('related_work', 'Related Work')
-        ]
-        
+
+        # Analyze EVERY non-empty section in the draft, keyed by its actual
+        # (display) name. The draft dict uses display names like "Abstract",
+        # "Introduction", "Methodology" — not the old hardcoded lowercase keys —
+        # so iterate the dict directly and skip References / empty sections.
         total_sentences = 0
         total_flagged = 0
         weighted_score = 0.0
-        
-        for section_key, section_name in sections_to_check:
-            section_text = generated_draft.get(section_key, '')
-            
-            if section_text:
-                analysis = self._analyze_section(section_text, source_content, section_name)
-                section_analyses.append(analysis)
-                
-                total_sentences += analysis['total_sentences']
-                total_flagged += analysis['sentences_flagged']
-                weighted_score += analysis['plagiarism_score'] * analysis['total_sentences']
-                
-                # Print progress
-                status_icon = "✅" if analysis['status'] == 'good' else "⚠️" if analysis['status'] == 'moderate' else "🚨"
-                print(f"   {status_icon} {section_name}: {analysis['plagiarism_score']:.1f}% "
-                      f"({analysis['sentences_flagged']}/{analysis['total_sentences']} flagged)")
+
+        for section_name, section_text in (generated_draft or {}).items():
+            if not section_text or not str(section_text).strip():
+                continue
+            if str(section_name).strip().lower() == 'references':
+                continue
+
+            analysis = self._analyze_section(str(section_text), source_content, str(section_name))
+            section_analyses.append(analysis)
+
+            total_sentences += analysis['total_sentences']
+            total_flagged += analysis['sentences_flagged']
+            weighted_score += analysis['plagiarism_score'] * analysis['total_sentences']
+
+            # Print progress
+            status_icon = "✅" if analysis['status'] == 'good' else "⚠️" if analysis['status'] == 'moderate' else "🚨"
+            print(f"   {status_icon} {section_name}: {analysis['plagiarism_score']:.1f}% "
+                  f"({analysis['sentences_flagged']}/{analysis['total_sentences']} flagged)")
         
         # Calculate overall plagiarism score
         overall_score = weighted_score / total_sentences if total_sentences > 0 else 0.0

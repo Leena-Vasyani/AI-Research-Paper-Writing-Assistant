@@ -8,11 +8,13 @@ import type { PipelineResult } from "@/lib/types";
 import {
   BlueprintView,
   CorpusView,
+  DraftPreview,
   ManuscriptView,
   QAView,
   ReviewReport,
   ThemesView,
 } from "@/components/pipeline/PipelineCards";
+import HumanizePanel from "@/components/pipeline/HumanizePanel";
 
 type StepId =
   | "search"
@@ -42,11 +44,15 @@ export default function WorkflowPage() {
   const [venue, setVenue] = useState("IEEE");
   const [outputType, setOutputType] = useState("research_paper");
   const [maxResults, setMaxResults] = useState(8);
+  const [humanizeFraction, setHumanizeFraction] = useState(0.4);
 
   const [state, setState] = useState<PipelineResult | null>(null);
   const [loading, setLoading] = useState<StepId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openStep, setOpenStep] = useState<StepId>("search");
+  // The mandatory humanization gate: review can't run until the author has
+  // rewritten each body section of the generated draft to the change quota.
+  const [draftHumanized, setDraftHumanized] = useState(false);
 
   const done: Record<StepId, boolean> = {
     search: !!state?.corpus,
@@ -65,6 +71,8 @@ export default function WorkflowPage() {
   const runStep = async (step: StepId) => {
     setError(null);
     setLoading(step);
+    // Any (re)run at or before drafting invalidates a prior humanization pass.
+    if (step !== "review" && step !== "finalize") setDraftHumanized(false);
     try {
       if (step === "search") {
         if (!topic.trim()) {
@@ -99,6 +107,22 @@ export default function WorkflowPage() {
         return;
       }
 
+      if (step === "drafting") {
+        // Pass the strictness slider through so the drafting node stamps the
+        // per-section change quota; stay on this step to run the gate.
+        const draftBase = {
+          ...base,
+          constraints: {
+            ...((base.constraints as Record<string, unknown>) ?? {}),
+            humanize_fraction: humanizeFraction,
+          },
+        };
+        const res = await callStage("drafting", draftBase);
+        setState(res);
+        setOpenStep("drafting");
+        return;
+      }
+
       const res = await callStage(step, base);
       setState(res);
       const order: StepId[] = ["search", "topic_mining", "qa", "outline", "drafting", "review", "finalize"];
@@ -129,7 +153,24 @@ export default function WorkflowPage() {
       case "outline":
         return <BlueprintView blueprint={state?.blueprint} />;
       case "drafting":
-        return <DraftPreview state={state} />;
+        if (!state?.draft?.sections) return <DraftPreview draft={state?.draft} />;
+        if (!draftHumanized)
+          return (
+            <HumanizePanel
+              draft={state.draft}
+              state={state}
+              fraction={humanizeFraction}
+              confirmLabel="Confirm humanization — unlock Review"
+              onConfirm={(edited) => {
+                setState((prev) =>
+                  prev ? { ...prev, draft: { ...prev.draft, sections: edited } } : prev,
+                );
+                setDraftHumanized(true);
+                setOpenStep("review");
+              }}
+            />
+          );
+        return <DraftPreview draft={state.draft} />;
       case "review":
         return <ReviewReport review={state?.review} revisionCount={state?.revision_count} />;
       case "finalize":
@@ -191,6 +232,21 @@ export default function WorkflowPage() {
               onChange={(e) => setMaxResults(Number(e.target.value))}
             />
           </label>
+          <label className="md:col-span-2 text-sm text-zinc-300">
+            Humanization strictness ·{" "}
+            <span className="text-indigo-200">
+              rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
+            </span>
+            <input
+              type="range"
+              min={20}
+              max={60}
+              step={5}
+              value={Math.round(humanizeFraction * 100)}
+              onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
+              className="mt-2 w-full accent-indigo-400"
+            />
+          </label>
         </div>
         {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
         {state?.stage_timings && (
@@ -209,7 +265,7 @@ export default function WorkflowPage() {
             (s.id === "qa" && done.topic_mining) ||
             (s.id === "outline" && done.qa) ||
             (s.id === "drafting" && done.outline) ||
-            (s.id === "review" && done.drafting) ||
+            (s.id === "review" && done.drafting && draftHumanized) ||
             (s.id === "finalize" && done.review);
           return (
             <section
@@ -245,26 +301,6 @@ export default function WorkflowPage() {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function DraftPreview({ state }: { state: PipelineResult | null }) {
-  const sections = state?.draft?.sections;
-  if (!sections) return <p className="text-sm text-zinc-500">No draft yet.</p>;
-  return (
-    <div className="space-y-2">
-      {state?.draft?.method && (
-        <div className="text-xs text-zinc-500">generator: {state.draft.method}</div>
-      )}
-      {Object.entries(sections).map(([name, text]) => (
-        <details key={name} className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2">
-          <summary className="cursor-pointer text-sm font-medium text-zinc-100">
-            {name} <span className="text-xs text-zinc-500">· {text.split(/\s+/).length}w</span>
-          </summary>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{text}</p>
-        </details>
-      ))}
     </div>
   );
 }

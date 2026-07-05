@@ -71,9 +71,15 @@ from api.schemas import (
     RAGUploadResponse,
     PipelineRunRequest,
     PipelineStageRequest,
+    GrammarCheckRequest,
+    GrammarCheckResponse,
+    GrammarIssue,
+    HumanizeValidateRequest,
+    HumanizeValidateResponse,
 )
 
 from backend.api.controllers import pipeline_controller
+from backend.runtime import humanize
 
 settings = get_settings()
 
@@ -296,6 +302,91 @@ def _autocomplete_with_any(text: str, max_suggestions: int = 3) -> List[str] | N
                         return result
     # Groq fallback
     return _autocomplete_with_groq(text, max_suggestions)
+
+
+# Static instruction text. Kept out of str.format()/f-strings because it contains
+# literal JSON braces; max_issues + passage are appended by concatenation below.
+_GRAMMAR_PROMPT = (
+    "You are an academic grammar checker. Analyse the passage and list concrete grammar, "
+    "spelling, and punctuation mistakes only (do not rewrite for style or reword whole "
+    "sentences). Return ONLY a JSON object of the form "
+    '{"issues": [{"original_snippet": "...", "suggestion": "...", "explanation": "...", "category": "grammar"}]}. '
+    "Each original_snippet MUST be an exact substring copied verbatim from the passage — a few "
+    "words around the mistake, never the whole passage. suggestion is the corrected replacement "
+    "for that exact snippet. category is one of grammar|spelling|punctuation. "
+    'If there are no mistakes return {"issues": []}. No markdown, no commentary.'
+)
+
+
+def _normalize_grammar_issues(items: Any, source_text: str, max_issues: int) -> List[Dict[str, Any]]:
+    """Drop no-ops/malformed entries and attach best-effort char offsets."""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(items, list):
+        return out
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        snippet = str(it.get("original_snippet", "")).strip()
+        suggestion = str(it.get("suggestion", "")).strip()
+        if not snippet or not suggestion or snippet == suggestion:
+            continue
+        idx = source_text.find(snippet)
+        out.append({
+            "original_snippet": snippet,
+            "suggestion": suggestion,
+            "explanation": str(it.get("explanation", "")).strip(),
+            "category": (str(it.get("category", "grammar")).strip() or "grammar"),
+            "start": idx if idx >= 0 else None,
+            "end": (idx + len(snippet)) if idx >= 0 else None,
+        })
+        if len(out) >= max_issues:
+            break
+    return out
+
+
+def _grammar_with_groq(prompt: str) -> Dict[str, Any] | None:
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or Groq is None:
+        return None
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            top_p=0.9,
+            max_tokens=700,
+        )
+        return _parse_json_block(response.choices[0].message.content.strip())
+    except Exception:
+        return None
+
+
+def _grammar_with_any(text: str, max_issues: int = 8) -> List[Dict[str, Any]] | None:
+    """Try Ollama -> Groq for grammar issues.
+
+    Returns a normalized issue list ([] means checked-and-clean); None means every
+    provider was unavailable/failed (caller degrades to an empty response).
+    """
+    passage = (text or "")[:4000]
+    prompt = (
+        _GRAMMAR_PROMPT
+        + f"\nReport at most {max_issues} issues, most important first."
+        + "\n\nPassage:\n"
+        + passage
+    )
+    # Ollama first
+    if _llm_chat is not None:
+        raw = _llm_chat(prompt, max_tokens=700, temperature=0.2, top_p=0.9)
+        if raw:
+            data = _parse_json_block(raw)
+            if data is not None:
+                return _normalize_grammar_issues(data.get("issues", []), passage, max_issues)
+    # Groq fallback
+    data = _grammar_with_groq(prompt)
+    if data is not None:
+        return _normalize_grammar_issues(data.get("issues", []), passage, max_issues)
+    return None
 
 
 def _max_ngram_overlap(text: str, source_texts: List[str], n: int = 6) -> float:
@@ -817,6 +908,54 @@ def refine_block(req: RefineBlockRequest) -> Dict[str, Any]:
             "overlap_score": overlap_score,
             "warnings": warnings,
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/grammar-check", response_model=GrammarCheckResponse)
+def grammar_check(req: GrammarCheckRequest) -> GrammarCheckResponse:
+    """LLM grammar/spelling/punctuation issues with verbatim snippets + fixes.
+
+    Reused by the humanization editor across every draft-producing page. Degrades
+    gracefully to an empty issue list (HTTP 200) if no LLM provider is available.
+    """
+    try:
+        text = (req.text or "").strip()
+        if not text:
+            return GrammarCheckResponse(issues=[], provider="fallback")
+        issues = _grammar_with_any(text, req.max_issues)
+        if not issues:
+            return GrammarCheckResponse(issues=[], provider="ollama/groq")
+        return GrammarCheckResponse(
+            issues=[GrammarIssue(**it) for it in issues],
+            provider="ollama/groq",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/humanize/validate", response_model=HumanizeValidateResponse)
+def humanize_validate(req: HumanizeValidateRequest) -> HumanizeValidateResponse:
+    """Authoritative per-section change-quota gate.
+
+    Compares the (edited) ``draft.sections`` against the pristine
+    ``draft.original_sections`` stamped by the drafting node. Returns the stats of
+    every editable (body) section still under quota; empty ``failures`` => proceed.
+    When no baseline is present (stale state) it passes so the flow never dead-ends.
+    """
+    try:
+        state = req.state or {}
+        draft = state.get("draft", {}) or {}
+        original = draft.get("original_sections")
+        edited = draft.get("sections", {}) or {}
+        blueprint = state.get("blueprint", {}) or {}
+        if not original:
+            return HumanizeValidateResponse(passed=True, failures=[])
+        fraction = req.humanize_fraction
+        if fraction is None:
+            fraction = (draft.get("humanize", {}) or {}).get("fraction", humanize.DEFAULT_FRACTION)
+        failures = humanize.validate_quota(original, edited, float(fraction), blueprint)
+        return HumanizeValidateResponse(passed=len(failures) == 0, failures=failures)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

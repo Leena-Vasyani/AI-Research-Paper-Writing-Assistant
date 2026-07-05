@@ -204,8 +204,10 @@ class ReviewAgent:
     def _originality_score(report: Dict[str, Any]) -> float:
         if not report:
             return 7.0  # neutral when unavailable
-        overlap = float(report.get("overall_score", 0.0) or 0.0)
-        return round(max(0.0, 1.0 - overlap) * 10.0, 1)
+        # overall_score is a percentage (0-100); convert to a 0-1 overlap first.
+        overlap = float(report.get("overall_score", 0.0) or 0.0) / 100.0
+        overlap = min(1.0, max(0.0, overlap))
+        return round((1.0 - overlap) * 10.0, 1)
 
     # ------------------------------------------------------------------
     # Scoring critics (LLM with heuristic fallback)
@@ -337,7 +339,7 @@ class ReviewAgent:
     # ------------------------------------------------------------------
 
     def _has_critical(self, scores, contradictions, unsupported, plagiarism) -> bool:
-        if (plagiarism or {}).get("overall_status") == "high":
+        if (plagiarism or {}).get("overall_status") == "high_plagiarism":
             return True
         if any(c.get("severity") == "H" for c in unsupported):
             return True
@@ -357,8 +359,14 @@ class ReviewAgent:
             concerns.append(f"{len(high)} high-severity unsupported claim(s)")
         if contradictions:
             concerns.append(f"{len(contradictions)} logical inconsistency(ies)")
-        if (plagiarism or {}).get("overall_status") == "high":
+        plag_status = (plagiarism or {}).get("overall_status")
+        if plag_status == "high_plagiarism":
             concerns.append("High textual overlap with sources (originality)")
+        elif plag_status == "moderate":
+            concerns.append(
+                f"Moderate textual overlap with sources "
+                f"({float((plagiarism or {}).get('overall_score', 0.0) or 0.0):.0f}%)"
+            )
         return concerns
 
     def _build_critique(self, scores, contradictions, unsupported, sections) -> Dict[str, List[str]]:

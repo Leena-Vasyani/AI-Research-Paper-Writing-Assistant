@@ -5,6 +5,7 @@ import Badge from "@/components/Badge";
 import type {
   Paper,
   PipelineBlueprint,
+  PipelineDraft,
   PipelineFinalDocument,
   PipelineReview,
   QAResult,
@@ -215,6 +216,34 @@ export function ReviewReport({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Draft preview (read-only per-section prose) ──────────────────────────────
+
+export function DraftPreview({ draft }: { draft?: PipelineDraft }) {
+  const sections = draft?.sections;
+  if (!sections) return <p className="text-sm text-zinc-500">No draft yet.</p>;
+  return (
+    <div className="space-y-2">
+      {draft?.method && (
+        <div className="text-xs text-zinc-500">generator: {draft.method}</div>
+      )}
+      {Object.entries(sections).map(([name, text]) => (
+        <details
+          key={name}
+          className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2"
+        >
+          <summary className="cursor-pointer text-sm font-medium text-zinc-100">
+            {name}{" "}
+            <span className="text-xs text-zinc-500">· {text.split(/\s+/).length}w</span>
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">
+            {text}
+          </p>
+        </details>
+      ))}
     </div>
   );
 }

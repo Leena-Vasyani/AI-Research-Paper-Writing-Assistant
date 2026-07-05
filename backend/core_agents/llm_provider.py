@@ -247,29 +247,46 @@ def chat_completion(
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
+    full_prompt = f"{system}\n\n{prompt}" if system else prompt  # Gemini takes one prompt
 
-    # 1. Ollama
-    print(f"   [>>] Trying provider: ollama ({_ollama_model()})")
-    result = _call_ollama(messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
-    if result:
-        print("   [OK] Ollama responded")
-        return result
+    def _try_ollama() -> Optional[str]:
+        print(f"   [>>] Trying provider: ollama ({_ollama_model()})")
+        r = _call_ollama(messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
+        if r:
+            print("   [OK] Ollama responded")
+        return r
 
-    # 2. Groq
-    print("   [>>] Trying provider: groq")
-    result = _call_groq(messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p, model=groq_model)
-    if result:
-        print("   [OK] Groq responded")
-        return result
+    def _try_groq() -> Optional[str]:
+        print("   [>>] Trying provider: groq")
+        r = _call_groq(messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p, model=groq_model)
+        if r:
+            print("   [OK] Groq responded")
+        return r
 
-    # 3. Gemini
-    print("   [>>] Trying provider: gemini")
-    # For Gemini combine system + user as one prompt
-    full_prompt = f"{system}\n\n{prompt}" if system else prompt
-    result = _call_gemini(full_prompt, max_tokens=max_tokens, temperature=temperature, top_p=top_p, model=gemini_model)
-    if result:
-        print("   [OK] Gemini responded")
-        return result
+    def _try_gemini() -> Optional[str]:
+        print("   [>>] Trying provider: gemini")
+        r = _call_gemini(full_prompt, max_tokens=max_tokens, temperature=temperature, top_p=top_p, model=gemini_model)
+        if r:
+            print("   [OK] Gemini responded")
+        return r
+
+    providers = {"ollama": _try_ollama, "groq": _try_groq, "gemini": _try_gemini}
+
+    # Provider order is configurable via LLM_PROVIDER_ORDER (comma-separated),
+    # e.g. "groq,gemini,ollama" to prefer the much faster Groq endpoint. Any
+    # providers omitted from the env value are appended as fallbacks so a partial
+    # list never silently drops a working provider. Default keeps Ollama first.
+    order_env = os.getenv("LLM_PROVIDER_ORDER", "").strip()
+    if order_env:
+        order = [p.strip().lower() for p in order_env.split(",") if p.strip().lower() in providers]
+        order += [name for name in ("ollama", "groq", "gemini") if name not in order]
+    else:
+        order = ["ollama", "groq", "gemini"]
+
+    for name in order:
+        result = providers[name]()
+        if result:
+            return result
 
     print("   [!!] All LLM providers failed")
     return None

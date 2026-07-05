@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,9 +44,49 @@ try:
 except Exception:  # pragma: no cover
     _get_embed_model = lambda: None  # type: ignore[assignment]
 
+try:
+    from backend.core_agents.outline_agent import _extract_json
+except Exception:  # pragma: no cover
+    def _extract_json(text):  # type: ignore
+        import json
+        try:
+            return json.loads(text or "")
+        except Exception:
+            return None
+
 
 _REF_CAP_FRACTION = float(os.getenv("DRAFT_REF_CAP_FRACTION", "0.25"))
 _WORDS_PER_SECTION = int(os.getenv("DRAFT_WORDS_PER_SECTION", "1000"))
+
+
+def _env_flag(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no", "")
+
+
+# --- Originality / anti-overlap controls (all env-overridable) -------------
+_DRAFT_TEMPERATURE = float(os.getenv("DRAFT_TEMPERATURE", "0.7"))
+_DISTILL_REFS = _env_flag("DRAFT_DISTILL_REFS", "1")
+_ORIGINALITY_PASS = _env_flag("DRAFT_ORIGINALITY_PASS", "1")
+_ORIGINALITY_MAX_PASSES = int(os.getenv("DRAFT_ORIGINALITY_MAX_PASSES", "2"))
+# Cap rewrites per section per pass so the originality stage stays bounded in cost
+# (the most-overlapping sentences are rewritten first).
+_ORIGINALITY_MAX_REWRITES = int(os.getenv("DRAFT_ORIGINALITY_MAX_REWRITES", "15"))
+_TARGET_OVERLAP = float(os.getenv("DRAFT_TARGET_OVERLAP", "0.28"))
+
+# System message that enforces original academic synthesis (anti-copying). It is
+# sent on every section-generation call so the model treats sources as grounding,
+# not text to reuse.
+_ORIGINALITY_SYSTEM = (
+    "You are an expert academic author writing an original manuscript. Write "
+    "entirely in your own words: synthesize and contrast ideas across multiple "
+    "sources rather than restating any single one. Never copy or lightly reword "
+    "phrases or sentence structures from the provided source notes — the notes "
+    "are factual grounding only, not text to reuse. Integrate at least two "
+    "sources for each major claim and attribute ideas in your own phrasing "
+    "(e.g. 'X et al. report ...'). Vary sentence length and structure and avoid "
+    "formulaic or repetitive transitions. Maintain a formal, precise academic "
+    "register."
+)
 
 
 class DraftingAgent:
@@ -64,6 +105,13 @@ class DraftingAgent:
         self.max_refine_loops = max_refine_loops
         self.max_workers = max_workers
         self.use_finetuned_fallback = use_finetuned_fallback
+        # Single, lazily-loaded plagiarism agent reused by the originality pass
+        # (the SentenceTransformer is expensive to load, so load it at most once).
+        self._plagiarism = None
+        self._plag_lock = threading.Lock()
+        # Cache of (source_sentences, embeddings) keyed by id(corpus) so the
+        # corpus is encoded once, not once per section (sections run in parallel).
+        self._src_cache: Dict[int, Any] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,6 +175,10 @@ class DraftingAgent:
                 qa_block=qa_block if self._qualifies_for_qa(spec) else "",
             )
             text, meta = self._verify_and_refine(spec, text, refs)
+            # Targeted originality pass: rewrite only the sentences that overlap
+            # the source corpus, until the section is under the overlap target.
+            text = self._originality_pass(name, text, corpus, topic)
+            meta["words"] = _word_count(text)
             return name, text, meta, refs
 
         if body_specs:
@@ -374,6 +426,50 @@ class DraftingAgent:
         block = "\n".join(lines)
         return block[:1500]
 
+    # ------------------------------------------------------------------
+    # Source distillation (paraphrased key-points instead of raw abstracts)
+    # ------------------------------------------------------------------
+
+    def _distill_ref(self, paper: Dict[str, Any]) -> str:
+        """Paraphrased factual key-points for a source paper.
+
+        Feeding the model distilled, reworded findings (instead of the raw
+        abstract) is the single biggest lever against textual overlap: the model
+        never sees the source's original phrasing. Cached on the paper dict so
+        each source is distilled at most once across all sections.
+        """
+        cached = paper.get("_key_points")
+        if cached:
+            return cached
+        abstract = (paper.get("abstract") or "").strip()
+        title = (paper.get("title") or "").strip()
+        if not abstract:
+            paper["_key_points"] = title
+            return title
+        if not (_DISTILL_REFS and self.use_llm):
+            kp = abstract[:240]
+            paper["_key_points"] = kp
+            return kp
+        kp = ""
+        try:
+            from backend.runtime.models import small_model
+            raw = small_model(
+                "Summarize this research abstract as 1-2 concise factual bullet "
+                "points (main finding + contribution). Paraphrase fully in your own "
+                "words; do NOT copy phrases from the abstract. Return only the "
+                f"bullets.\nTitle: {title}\nAbstract: {abstract[:1200]}",
+                max_tokens=120,
+                temperature=0.5,
+            )
+            kp = (raw or "").strip()
+        except Exception:  # noqa: BLE001
+            kp = ""
+        if not kp:
+            kp = abstract[:240]  # graceful fallback keeps the pipeline grounded
+        kp = kp[:400]
+        paper["_key_points"] = kp
+        return kp
+
     def _llm_section(
         self, spec, refs, data, topic, context, target, feedback, qa_block="",
     ) -> Optional[str]:
@@ -385,7 +481,7 @@ class DraftingAgent:
             c for sub in spec.get("subsections", []) for c in sub.get("cues", [])
         ) or spec.get("goal", "")
         ref_block = "\n".join(
-            f"- {r.get('title','')}: {(r.get('abstract','') or '')[:240]}" for r in refs
+            f"- {r.get('title','')} — key points: {self._distill_ref(r)}" for r in refs
         ) or "(no specific sources retrieved)"
         fb = ""
         if feedback and feedback.get("major_concerns"):
@@ -398,15 +494,187 @@ class DraftingAgent:
             f"Write ONLY the '{name}' section (~{target} words).\n"
             f"Goal: {spec.get('goal','')}\nWriting cues: {cues}\n"
             f"Cover ONLY this section's scope — do NOT write content owned by other "
-            f"sections (see the section plan above). Use formal academic prose and cite "
-            f"the sources below by author/title where relevant.\n"
-            f"Relevant sources:\n{ref_block}\n"
+            f"sections (see the section plan above). Synthesize the evidence below in "
+            f"your OWN words; do NOT copy or closely paraphrase any source's wording. "
+            f"Integrate multiple sources and attribute ideas by author/title where relevant.\n"
+            f"Source notes (paraphrased grounding — reuse the ideas, not the wording):\n{ref_block}\n"
             f"{qa}"
             f"{('Experimental data:\\n' + data) if data else ''}{fb}\n"
             f"Return ONLY the section prose (no markdown headings)."
         )
         max_tokens = min(2048, int(target * 1.6) + 200)
-        return model_fn(prompt, max_tokens=max_tokens, temperature=0.4)
+        # Summarizing sections (abstract/conclusion/title) stay low-temperature for
+        # faithful condensation; substantive body sections use a higher temperature
+        # so phrasing diverges from the sources.
+        role = spec.get("role", "body")
+        is_summary = role in ("front_matter", "back_matter") or name.strip().lower() in (
+            "abstract", "conclusion", "title",
+        )
+        temperature = 0.3 if is_summary else _DRAFT_TEMPERATURE
+        return model_fn(
+            prompt, system=_ORIGINALITY_SYSTEM, max_tokens=max_tokens, temperature=temperature
+        )
+
+    # ------------------------------------------------------------------
+    # Targeted originality pass (sentence-level overlap reduction)
+    # ------------------------------------------------------------------
+
+    def _get_plagiarism(self):
+        """Lazily construct one shared PlagiarismDetectionAgent (thread-safe)."""
+        if self._plagiarism is not None:
+            return self._plagiarism or None  # ``False`` sentinel => unavailable
+        with self._plag_lock:
+            if self._plagiarism is None:
+                try:
+                    from backend.core_agents.plagiarism_agent import PlagiarismDetectionAgent
+                    self._plagiarism = PlagiarismDetectionAgent()
+                except Exception as exc:  # noqa: BLE001
+                    print(f"   [!] Originality pass disabled (plagiarism agent unavailable): {exc}")
+                    self._plagiarism = False  # tried and failed; don't retry
+        return self._plagiarism or None
+
+    def _originality_pass(self, section_name: str, text: str, corpus: List[Dict[str, Any]], topic: str) -> str:
+        """Rewrite only the sentences that overlap the source corpus.
+
+        Bounded and guaranteed to terminate (see the per-step guards below): a
+        fixed pass cap, a per-sentence acceptance test, a ``done`` set so no
+        sentence is retried, and early-success / no-progress breaks. Worst case
+        it returns the best text seen so far — a section can never get stuck.
+        """
+        if not (_ORIGINALITY_PASS and self.use_llm and _ORIGINALITY_MAX_PASSES > 0):
+            return text
+        if not text or not text.strip() or not corpus:
+            return text
+        agent = self._get_plagiarism()
+        if agent is None:
+            return text
+        try:
+            import numpy as np
+            from sklearn.metrics.pairwise import cosine_similarity
+        except Exception:  # noqa: BLE001
+            return text
+
+        # Flatten + embed all source sentences ONCE per corpus (cached/reused
+        # across the parallel section writers).
+        model = agent.model
+        key = id(corpus)
+        cached = self._src_cache.get(key)
+        if cached is None:
+            with self._plag_lock:
+                cached = self._src_cache.get(key)
+                if cached is None:
+                    source_content = agent._extract_source_content(corpus)
+                    sents = [s for ss in source_content.values() for s in ss]
+                    if not sents:
+                        self._src_cache[key] = (None, None)
+                        return text
+                    try:
+                        emb = model.encode(sents, convert_to_numpy=True)
+                    except Exception:  # noqa: BLE001
+                        return text
+                    cached = (sents, emb)
+                    self._src_cache[key] = cached
+        source_sentences, src_emb = cached
+        if not source_sentences:
+            return text
+
+        def _max_sim(sentence: str) -> Tuple[float, str]:
+            try:
+                emb = model.encode([sentence], convert_to_numpy=True)
+                sims = cosine_similarity(emb, src_emb)[0]
+                j = int(np.argmax(sims))
+                return float(sims[j]), source_sentences[j]
+            except Exception:  # noqa: BLE001
+                return 0.0, ""
+
+        try:
+            from backend.runtime.models import large_model
+        except Exception:  # noqa: BLE001
+            return text
+
+        done: set = set()        # sentences we will not retry
+        prev_overall: Optional[float] = None
+
+        for _ in range(_ORIGINALITY_MAX_PASSES):
+            sentences = agent._split_into_sentences(text)
+            if not sentences:
+                break
+            sims = [_max_sim(s) for s in sentences]
+            overall = sum(sc for sc, _ in sims) / len(sims)
+            if overall < _TARGET_OVERLAP:
+                break  # early-success: section is already under target
+            if prev_overall is not None and (prev_overall - overall) < 0.005:
+                break  # no-progress: last pass barely moved the needle
+            prev_overall = overall
+
+            # Fixed, finite flagged list for THIS pass (no mid-pass re-queue),
+            # capped to the most-overlapping sentences to bound cost.
+            flagged = [
+                (s, sc, m) for s, (sc, m) in zip(sentences, sims)
+                if sc >= _TARGET_OVERLAP and s not in done
+            ]
+            if not flagged:
+                break
+            flagged.sort(key=lambda x: x[1], reverse=True)
+            flagged = flagged[:_ORIGINALITY_MAX_REWRITES]
+
+            # ONE LLM call rewrites the whole batch — keeps the originality stage
+            # to ~O(passes) calls per section rather than O(sentences).
+            rewrites = self._rewrite_batch(large_model, [f[0] for f in flagged], topic, section_name)
+            changed_any = False
+            for (original, score, _match), rewritten in zip(flagged, rewrites):
+                done.add(original)  # never retry, regardless of outcome
+                if not rewritten or rewritten.strip() == original.strip():
+                    continue
+                new_score, _ = _max_sim(rewritten)
+                if new_score + 1e-6 < score:  # accept only a measurable improvement
+                    text = text.replace(original, rewritten, 1)
+                    changed_any = True
+            if not changed_any:
+                break  # nothing improved this pass; further passes won't help
+
+        return text
+
+    def _rewrite_batch(self, large_model, sentences: List[str],
+                       topic: str, section_name: str) -> List[Optional[str]]:
+        """Rewrite a batch of overlapping sentences in a single LLM call.
+
+        Returns a list aligned to ``sentences`` (``None`` where the model gave no
+        usable rewrite). Using one call per batch keeps the originality pass cheap.
+        """
+        if not sentences:
+            return []
+        numbered = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(sentences))
+        prompt = (
+            f"The numbered sentences below are from the '{section_name}' section of an "
+            f"academic paper on \"{topic}\" and overlap their sources too closely. "
+            f"Rewrite EACH so it shares no wording with the original while preserving the "
+            f"exact technical meaning and a formal academic tone. Keep each to one "
+            f"sentence of similar length. Do NOT invent author names, years, or citations "
+            f"(citations are added separately). Return ONLY a JSON object keyed by the "
+            f"same numbers, e.g. {{\"1\": \"<rewrite>\", \"2\": \"<rewrite>\"}}.\n"
+            f"{numbered}"
+        )
+        try:
+            raw = large_model(
+                prompt, system=_ORIGINALITY_SYSTEM,
+                max_tokens=min(2048, 80 * len(sentences) + 200),
+                temperature=_DRAFT_TEMPERATURE,
+            )
+        except Exception:  # noqa: BLE001
+            return [None] * len(sentences)
+        data = _extract_json(raw)
+        out: List[Optional[str]] = []
+        for i in range(len(sentences)):
+            val: Optional[str] = None
+            if isinstance(data, dict):
+                v = data.get(str(i + 1))
+                if isinstance(v, str) and v.strip():
+                    # Strip quotes/preamble and trailing period (the original
+                    # sentence's terminator stays in the text → avoids "..").
+                    val = v.strip().strip('"').strip().rstrip(" .")
+            out.append(val)
+        return out
 
     def _finetuned_section(self, spec, topic, context) -> Optional[str]:
         """Optional FLAN-T5 fallback for the classic sections."""

@@ -76,6 +76,66 @@ export type PipelineFinalDocument = {
   grounding?: Record<string, unknown>;
 };
 
+// ── Human-in-the-loop humanization ────────────────────────────────────────
+
+export type HumanizeSectionMeta = {
+  editable: boolean;
+  role: string;
+  original_words: number;
+  required: number;
+  length_floor: number;
+};
+
+export type HumanizeMeta = {
+  fraction: number;
+  sections: Record<string, HumanizeSectionMeta>;
+};
+
+export type PipelineDraft = {
+  title?: string;
+  sections?: Record<string, string>;
+  latex?: string;
+  method?: string;
+  references_used?: Paper[];
+  ordering?: string[];
+  section_meta?: Record<string, Record<string, unknown>>;
+  // Pristine copy of the generated sections (baseline for the change quota).
+  original_sections?: Record<string, string>;
+  humanize?: HumanizeMeta;
+};
+
+export type GrammarIssue = {
+  original_snippet: string;
+  suggestion: string;
+  explanation?: string;
+  category?: string;
+  start?: number | null;
+  end?: number | null;
+};
+
+export type GrammarCheckResult = {
+  issues: GrammarIssue[];
+  provider: string;
+};
+
+export type HumanizeSectionFailure = {
+  name: string;
+  editable: boolean;
+  role: string;
+  original_words: number;
+  edited_words: number;
+  changed: number;
+  required: number;
+  length_floor: number;
+  length_ok: boolean;
+  met: boolean;
+};
+
+export type HumanizeValidateResult = {
+  passed: boolean;
+  failures: HumanizeSectionFailure[];
+};
+
 export type PipelineResult = {
   topic?: string;
   status?: string;
@@ -84,13 +144,7 @@ export type PipelineResult = {
   qa?: QAResult;
   citation_graph?: Record<string, unknown>;
   blueprint?: PipelineBlueprint;
-  draft?: {
-    title?: string;
-    sections?: Record<string, string>;
-    latex?: string;
-    method?: string;
-    references_used?: Paper[];
-  };
+  draft?: PipelineDraft;
   review?: PipelineReview;
   final_document?: PipelineFinalDocument;
   warnings?: string[];

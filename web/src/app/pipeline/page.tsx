@@ -5,8 +5,24 @@ import Badge from "@/components/Badge";
 import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
 import { ManuscriptView, QAView } from "@/components/pipeline/PipelineCards";
+import HumanizePanel from "@/components/pipeline/HumanizePanel";
 import { api } from "@/lib/api";
 import type { PipelineResult } from "@/lib/types";
+
+type Phase = "input" | "humanize" | "finalizing" | "done";
+
+// Sequentially fold single stages over an accumulating state (mirrors the graph
+// order, minus the revision loop — human edits must flow forward, not re-draft).
+async function runStages(
+  stages: string[],
+  initial: Record<string, unknown>,
+): Promise<PipelineResult> {
+  let s = initial;
+  for (const stage of stages) {
+    s = (await api.runStage({ stage, state: s })) as unknown as Record<string, unknown>;
+  }
+  return s as unknown as PipelineResult;
+}
 
 function getErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : "Pipeline run failed";
@@ -23,8 +39,12 @@ export default function PipelinePage() {
   const [venue, setVenue] = useState("IEEE");
   const [outputType, setOutputType] = useState("research_paper");
   const [maxResults, setMaxResults] = useState(8);
+  const [humanizeOn, setHumanizeOn] = useState(true);
+  const [humanizeFraction, setHumanizeFraction] = useState(0.4);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>("input");
+  const [draftState, setDraftState] = useState<PipelineResult | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
 
   const run = async () => {
@@ -35,18 +55,69 @@ export default function PipelinePage() {
     setError(null);
     setLoading(true);
     setResult(null);
+    setDraftState(null);
+    setPhase("input");
+
+    // Toggle OFF: the original one-click, fully-automated run (unchanged).
+    if (!humanizeOn) {
+      try {
+        const res = await api.runPipeline({
+          topic,
+          target_venue: venue,
+          output_type: outputType,
+          constraints: { max_results: maxResults },
+        });
+        setResult(res);
+        setPhase("done");
+      } catch (e: unknown) {
+        setError(getErrorMessage(e));
+        setPhase("input");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Toggle ON: generate up to the draft, then stop for the humanization gate.
+    setPhase("input");
     try {
-      const res = await api.runPipeline({
+      const seed: Record<string, unknown> = {
         topic,
         target_venue: venue,
         output_type: outputType,
-        constraints: { max_results: maxResults },
-      });
-      setResult(res);
+        constraints: { max_results: maxResults, humanize_fraction: humanizeFraction },
+      };
+      const drafted = await runStages(
+        ["search", "topic_mining", "qa", "outline", "drafting"],
+        seed,
+      );
+      setDraftState(drafted);
+      setPhase("humanize");
     } catch (e: unknown) {
       setError(getErrorMessage(e));
+      setPhase("input");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // After the author humanizes: splice edited sections into the draft and run the
+  // remaining stages (review → citation → formatter) on the human-edited content.
+  const finalize = async (edited: Record<string, string>) => {
+    if (!draftState) return;
+    setError(null);
+    setPhase("finalizing");
+    try {
+      const base: Record<string, unknown> = {
+        ...(draftState as unknown as Record<string, unknown>),
+        draft: { ...draftState.draft, sections: edited },
+      };
+      const finalized = await runStages(["review", "citation", "formatter"], base);
+      setResult(finalized);
+      setPhase("done");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e));
+      setPhase("humanize");
     }
   };
 
@@ -112,14 +183,47 @@ export default function PipelinePage() {
               onChange={(e) => setMaxResults(Number(e.target.value))}
             />
           </label>
+          <label className="md:col-span-2 flex items-center gap-2 text-sm text-zinc-300">
+            <input
+              type="checkbox"
+              checked={humanizeOn}
+              onChange={(e) => setHumanizeOn(e.target.checked)}
+              className="h-4 w-4 accent-indigo-400"
+            />
+            Require manual humanization — edit each body section before review to cut
+            plagiarism
+          </label>
+          {humanizeOn && (
+            <label className="md:col-span-2 text-sm text-zinc-300">
+              Humanization strictness ·{" "}
+              <span className="text-indigo-200">
+                rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
+              </span>
+              <input
+                type="range"
+                min={20}
+                max={60}
+                step={5}
+                value={Math.round(humanizeFraction * 100)}
+                onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
+                className="mt-2 w-full accent-indigo-400"
+              />
+            </label>
+          )}
         </div>
         <div className="mt-4 flex items-center gap-3">
           <button
             onClick={run}
-            disabled={loading}
+            disabled={loading || phase === "finalizing"}
             className="rounded-xl border border-indigo-400/45 bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-100 transition hover:bg-indigo-500/30 disabled:opacity-50"
           >
-            {loading ? "Running pipeline…" : "Run pipeline"}
+            {loading
+              ? humanizeOn
+                ? "Generating draft…"
+                : "Running pipeline…"
+              : humanizeOn
+                ? "Generate draft"
+                : "Run pipeline"}
           </button>
           {result?.stage_timings && (
             <span className="text-xs text-zinc-500">
@@ -132,7 +236,29 @@ export default function PipelinePage() {
         {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
       </SectionCard>
 
-      {result && (
+      {phase === "humanize" && draftState?.draft && (
+        <SectionCard
+          title="Humanize the draft"
+          description="Rewrite each body section in your own words. Review, citation and formatting run on your edited text."
+        >
+          <HumanizePanel
+            draft={draftState.draft}
+            state={draftState}
+            fraction={humanizeFraction}
+            busy={phase !== "humanize"}
+            confirmLabel="Confirm & run review + formatting"
+            onConfirm={finalize}
+          />
+        </SectionCard>
+      )}
+
+      {phase === "finalizing" && (
+        <div className="rounded-2xl border border-indigo-400/25 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100">
+          Running review → citation → formatting on your humanized draft…
+        </div>
+      )}
+
+      {phase === "done" && result && (
         <>
           {result.warnings && result.warnings.length > 0 && (
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">

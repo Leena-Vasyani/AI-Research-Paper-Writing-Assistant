@@ -6,6 +6,8 @@ import type {
   Draft,
   ExtractTextResult,
   GitHubToIEEEResult,
+  GrammarCheckResult,
+  HumanizeValidateResult,
   Paper,
   PlagiarismReport,
   PipelineResult,
@@ -95,6 +97,19 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   pipelineStages: () => request<{ stages: string[] }>("/api/pipeline/stages"),
+  grammarCheck: (payload: { text: string; max_issues?: number }) =>
+    request<GrammarCheckResult>("/api/grammar-check", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  validateHumanization: (payload: {
+    state: Record<string, unknown>;
+    humanize_fraction?: number;
+  }) =>
+    request<HumanizeValidateResult>("/api/humanize/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   qaGenerate: (payload: {
     topic: string;
     corpus?: Paper[];
