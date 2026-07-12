@@ -75,6 +75,76 @@ _STRUCTURES: Dict[str, List[Tuple[str, str, int, int]]] = {
 _STRUCTURES["report"] = _STRUCTURES["research_paper"]
 
 
+# ---------------------------------------------------------------------------
+# Field-specific section skeletons — override the output_type default for
+# research_paper / report so each discipline gets its conventional structure
+# (a survey keeps its dedicated skeleton regardless of field). Roles stay within
+# the blueprint's vocabulary (front_matter | macro_lit_review | micro_lit_review
+# | body | back_matter) so the humanize gate + drafting agent are unaffected.
+# ---------------------------------------------------------------------------
+
+_FIELD_STRUCTURES: Dict[str, List[Tuple[str, str, int, int]]] = {
+    # IMRaD — physical/life/social sciences
+    "imrad": [
+        ("Abstract", "front_matter", 0, 200),
+        ("Introduction", "macro_lit_review", 3, 800),
+        ("Literature Review", "micro_lit_review", 3, 800),
+        ("Methods", "body", 3, 900),
+        ("Results", "body", 3, 900),
+        ("Discussion", "body", 3, 800),
+        ("Conclusion", "back_matter", 0, 400),
+        ("References", "back_matter", 0, 0),
+    ],
+    # Empirical / case — business & finance
+    "empirical": [
+        ("Abstract", "front_matter", 0, 200),
+        ("Introduction", "macro_lit_review", 3, 800),
+        ("Literature Review", "micro_lit_review", 3, 800),
+        ("Hypothesis Development", "body", 2, 600),
+        ("Data and Methodology", "body", 3, 900),
+        ("Findings", "body", 3, 900),
+        ("Discussion", "body", 3, 800),
+        ("Conclusion", "back_matter", 0, 400),
+        ("References", "back_matter", 0, 0),
+    ],
+    # Experimental — agriculture, environment, health/biomed
+    "experimental": [
+        ("Abstract", "front_matter", 0, 200),
+        ("Introduction", "macro_lit_review", 3, 900),
+        ("Materials and Methods", "body", 4, 900),
+        ("Results", "body", 3, 900),
+        ("Discussion", "body", 3, 900),
+        ("Conclusion", "back_matter", 0, 400),
+        ("References", "back_matter", 0, 0),
+    ],
+    # Thesis-driven essay — arts, humanities, law
+    "humanities": [
+        ("Abstract", "front_matter", 0, 200),
+        ("Introduction", "macro_lit_review", 3, 800),
+        ("Literature Review", "micro_lit_review", 3, 700),
+        ("Analysis", "body", 4, 1100),
+        ("Discussion", "body", 3, 800),
+        ("Conclusion", "back_matter", 0, 400),
+        ("References", "back_matter", 0, 0),
+    ],
+}
+
+# Field id -> structure key. Fields not listed (cs, engineering, general) use the
+# output_type default (the CS-flavored research_paper skeleton).
+_FIELD_STRUCTURE_KEY: Dict[str, str] = {
+    "physical_sciences": "imrad",
+    "life_sciences": "imrad",
+    "social_sciences": "imrad",
+    "business": "empirical",
+    "finance": "empirical",
+    "agriculture": "experimental",
+    "environment": "experimental",
+    "health": "experimental",
+    "arts": "humanities",
+    "law": "humanities",
+}
+
+
 class OutlineAgent:
     def __init__(self, use_llm: bool = True, max_subsections: int = 4):
         self.use_llm = use_llm
@@ -100,13 +170,26 @@ class OutlineAgent:
         corpus = corpus or []
         citation_graph = citation_graph or {}
         raw_materials = raw_materials or {}
+        constraints = constraints or {}
+
+        # Discipline: pick a field-specific skeleton + steer LLM cues.
+        field = (constraints.get("field") or "").strip().lower()
+        subfield = (constraints.get("subfield") or "").strip()
+        try:
+            from backend.runtime import fields as _fields
+            field_hint = _fields.prompt_hint(field, subfield)
+        except Exception:
+            field_hint = ""
 
         clusters = themes.get("clusters", []) or []
         gaps = themes.get("gaps", []) or []
 
-        # 1. Structure: template (if provided) overrides the default skeleton.
+        # 1. Structure: template (if provided) overrides the default skeleton;
+        #    otherwise a field-specific skeleton (falls back to output_type).
         template = raw_materials.get("latex_template") or ""
-        section_specs = self._structure_from_template(template) or self._default_structure(output_type)
+        section_specs = self._structure_from_template(template) or self._default_structure(
+            output_type, field
+        )
 
         # 2. Deterministic skeleton (always valid).
         blueprint = self._skeleton(
@@ -116,7 +199,7 @@ class OutlineAgent:
         method = "deterministic"
         # 3. Generate cues (small model) -> enrich (large model).
         if self.use_llm:
-            cues = self._llm_section_cues(topic, blueprint, clusters, gaps)
+            cues = self._llm_section_cues(topic, blueprint, clusters, gaps, field_hint=field_hint)
             enriched = self._llm_enrich(topic, target_venue, blueprint, cues, clusters, gaps, corpus)
             if enriched:
                 blueprint = enriched
@@ -132,7 +215,15 @@ class OutlineAgent:
     # Structure
     # ------------------------------------------------------------------
 
-    def _default_structure(self, output_type: str) -> List[Tuple[str, str, int, int]]:
+    def _default_structure(
+        self, output_type: str, field: Optional[str] = None
+    ) -> List[Tuple[str, str, int, int]]:
+        # A survey keeps its dedicated skeleton regardless of discipline.
+        if output_type == "survey":
+            return _STRUCTURES["survey"]
+        key = _FIELD_STRUCTURE_KEY.get((field or "").strip().lower())
+        if key and key in _FIELD_STRUCTURES:
+            return _FIELD_STRUCTURES[key]
         return _STRUCTURES.get(output_type, _STRUCTURES["research_paper"])
 
     def _structure_from_template(self, latex_template: str) -> Optional[List[Tuple[str, str, int, int]]]:
@@ -273,6 +364,7 @@ class OutlineAgent:
     def _llm_section_cues(
         self, topic: str, blueprint: Dict[str, Any],
         clusters: List[Dict[str, Any]], gaps: List[str],
+        field_hint: str = "",
     ) -> Dict[str, List[str]]:
         try:
             from backend.runtime.models import small_model
@@ -283,7 +375,8 @@ class OutlineAgent:
         theme_list = ", ".join(c.get("theme", "") for c in clusters) or "n/a"
         gap_list = "; ".join(gaps) or "n/a"
         prompt = (
-            f"You are planning an academic paper on: \"{topic}\".\n"
+            (f"{field_hint}\n" if field_hint else "")
+            + f"You are planning an academic paper on: \"{topic}\".\n"
             f"Discovered themes: {theme_list}\nKnown gaps: {gap_list}\n"
             f"For EACH section below, give 2-3 short writing cues (imperative phrases).\n"
             f"Sections: {', '.join(section_names)}\n"

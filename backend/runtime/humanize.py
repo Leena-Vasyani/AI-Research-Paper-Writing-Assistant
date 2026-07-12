@@ -12,12 +12,14 @@ bypass the quota.
 Metric (per editable section):
     changed  = len(original_words) - word_lcs(original_words, edited_words)
     required = 0 if len(original_words) < 25 else ceil(fraction * len(original_words))
-    met      = changed >= required AND edited keeps >= 70% of the original length
+    met      = changed >= required AND edited keeps >= 50% of the original length
 
 Word-level LCS (not char-Levenshtein) measures how many original words survive
 in order: genuine paraphrase (reorder + synonym swap) drops it fast, while
-cosmetic churn does not. The length floor stops users gaming the quota by simply
-deleting words (deletions count as "changed"), forcing real replacement.
+cosmetic churn does not. The length floor is deliberately lenient (50%) so an
+author who condenses/tightens a section into fewer words still satisfies the
+quota (deletions count as "changed"); it only blocks wholesale deletion of the
+section rather than genuine rewriting.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*")
 
 DEFAULT_FRACTION = 0.40
 MIN_WORDS_TO_REQUIRE = 25
-LENGTH_FLOOR_RATIO = 0.70
+LENGTH_FLOOR_RATIO = 0.50
 
 # Substantive prose roles that must be humanized. Mirrors the "body" grouping in
 # drafting_agent.py. Front matter (Abstract) and back matter (Conclusion,

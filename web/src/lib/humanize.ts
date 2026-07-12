@@ -7,7 +7,10 @@
  * Metric (per editable section):
  *   changed  = origWords - wordLcs(origWords, editedWords)
  *   required = origWords < 25 ? 0 : ceil(fraction * origWords)
- *   met      = changed >= required AND edited keeps >= 70% of original length
+ *   met      = changed >= required AND edited keeps >= 50% of original length
+ *
+ * The 50% length floor is lenient on purpose: condensing/tightening a section
+ * into fewer words still satisfies the quota; only wholesale deletion is blocked.
  */
 
 import type { HumanizeSectionMeta } from "./types";
@@ -17,7 +20,7 @@ const WORD_RE = /[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g;
 
 export const DEFAULT_FRACTION = 0.4;
 export const MIN_WORDS_TO_REQUIRE = 25;
-export const LENGTH_FLOOR_RATIO = 0.7;
+export const LENGTH_FLOOR_RATIO = 0.5;
 
 // Substantive body-prose roles that are gated (mirror EDITABLE_ROLES in Python).
 const EDITABLE_ROLES = new Set(["body", "macro_lit_review", "micro_lit_review"]);

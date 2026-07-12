@@ -16,6 +16,8 @@ import {
   ThemesView,
 } from "@/components/pipeline/PipelineCards";
 import HumanizePanel from "@/components/pipeline/HumanizePanel";
+import FieldSelector from "@/components/FieldSelector";
+import { DEFAULT_FIELD_ID, getField } from "@/lib/fields";
 
 type Stage =
   | "search"
@@ -53,10 +55,13 @@ function getErrorMessage(e: unknown): string {
 
 export default function AgentHubPage() {
   const [topic, setTopic] = useState("");
+  const [field, setField] = useState(DEFAULT_FIELD_ID);
+  const [subfield, setSubfield] = useState("");
   const [venue, setVenue] = useState("IEEE");
   const [outputType, setOutputType] = useState("research_paper");
   const [maxResults, setMaxResults] = useState(8);
 
+  const [humanizeOn, setHumanizeOn] = useState(true);
   const [humanizeFraction, setHumanizeFraction] = useState(0.4);
 
   const [state, setState] = useState<PipelineResult>({});
@@ -67,6 +72,15 @@ export default function AgentHubPage() {
   // Soft gate: the generated draft must be humanized before Review/Citation run.
   const [draftHumanized, setDraftHumanized] = useState(false);
 
+  // Field change resets the subfield and applies the discipline's default venue.
+  const handleFieldChange = (f: string, s: string) => {
+    setSubfield(s);
+    if (f !== field) {
+      setField(f);
+      setVenue(getField(f).defaults.venue);
+    }
+  };
+
   const hasKey = (k: keyof PipelineResult): boolean => {
     const v = state[k];
     if (v == null) return false;
@@ -76,8 +90,10 @@ export default function AgentHubPage() {
   };
 
   const runAgent = async (agent: (typeof AGENTS)[number]) => {
-    // Soft gate: don't score/ground a draft the author hasn't humanized yet.
+    // Soft gate: don't score/ground a draft the author hasn't humanized yet
+    // (only when the humanization gate is enabled).
     if (
+      humanizeOn &&
       (agent.id === "review" || agent.id === "citation") &&
       state.draft?.sections &&
       !draftHumanized
@@ -96,7 +112,7 @@ export default function AgentHubPage() {
         topic,
         target_venue: venue,
         output_type: outputType,
-        constraints: { max_results: maxResults, humanize_fraction: humanizeFraction },
+        constraints: { max_results: maxResults, humanize_fraction: humanizeFraction, field, subfield },
       };
       const res = await api.runStage({ stage: agent.id, state: base });
       if (agent.id === "drafting") setDraftHumanized(false);
@@ -143,7 +159,7 @@ export default function AgentHubPage() {
         return <BlueprintView blueprint={state.blueprint} />;
       case "drafting":
         if (!state.draft?.sections) return <DraftPreview draft={state.draft} />;
-        if (!draftHumanized)
+        if (humanizeOn && !draftHumanized)
           return (
             <HumanizePanel
               draft={state.draft}
@@ -158,7 +174,14 @@ export default function AgentHubPage() {
           );
         return (
           <div className="space-y-2">
-            <Badge tone="success">humanized</Badge>
+            {humanizeOn ? (
+              <Badge tone="success">humanized</Badge>
+            ) : (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200">
+                Humanization off — Review & Citation run on the raw draft (higher plagiarism
+                risk).
+              </div>
+            )}
             <DraftPreview draft={state.draft} />
           </div>
         );
@@ -200,9 +223,10 @@ export default function AgentHubPage() {
               className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-400/60"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. reinforcement learning for home energy management"
+              placeholder={getField(field).placeholder}
             />
           </label>
+          <FieldSelector field={field} subfield={subfield} onChange={handleFieldChange} />
           <label className="text-sm text-zinc-300">
             Target venue
             <select
@@ -238,21 +262,32 @@ export default function AgentHubPage() {
               onChange={(e) => setMaxResults(Number(e.target.value))}
             />
           </label>
-          <label className="md:col-span-2 text-sm text-zinc-300">
-            Humanization strictness ·{" "}
-            <span className="text-indigo-200">
-              rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
-            </span>
+          <label className="md:col-span-2 flex items-center gap-2 text-sm text-zinc-300">
             <input
-              type="range"
-              min={20}
-              max={60}
-              step={5}
-              value={Math.round(humanizeFraction * 100)}
-              onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
-              className="mt-2 w-full accent-indigo-400"
+              type="checkbox"
+              checked={humanizeOn}
+              onChange={(e) => setHumanizeOn(e.target.checked)}
+              className="h-4 w-4 accent-indigo-400"
             />
+            Require manual humanization before Review &amp; Citation (cuts plagiarism)
           </label>
+          {humanizeOn && (
+            <label className="md:col-span-2 text-sm text-zinc-300">
+              Humanization strictness ·{" "}
+              <span className="text-indigo-200">
+                rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
+              </span>
+              <input
+                type="range"
+                min={10}
+                max={60}
+                step={5}
+                value={Math.round(humanizeFraction * 100)}
+                onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
+                className="mt-2 w-full accent-indigo-400"
+              />
+            </label>
+          )}
         </div>
 
         <details className="mt-4 rounded-xl border border-zinc-800/70 bg-zinc-950/40 px-3 py-2">

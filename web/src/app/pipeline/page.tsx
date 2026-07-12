@@ -6,7 +6,9 @@ import PageHeader from "@/components/PageHeader";
 import SectionCard from "@/components/SectionCard";
 import { ManuscriptView, QAView } from "@/components/pipeline/PipelineCards";
 import HumanizePanel from "@/components/pipeline/HumanizePanel";
+import FieldSelector from "@/components/FieldSelector";
 import { api } from "@/lib/api";
+import { DEFAULT_FIELD_ID, getField } from "@/lib/fields";
 import type { PipelineResult } from "@/lib/types";
 
 type Phase = "input" | "humanize" | "finalizing" | "done";
@@ -36,6 +38,8 @@ function scoreColor(v: number): string {
 
 export default function PipelinePage() {
   const [topic, setTopic] = useState("");
+  const [field, setField] = useState(DEFAULT_FIELD_ID);
+  const [subfield, setSubfield] = useState("");
   const [venue, setVenue] = useState("IEEE");
   const [outputType, setOutputType] = useState("research_paper");
   const [maxResults, setMaxResults] = useState(8);
@@ -46,6 +50,15 @@ export default function PipelinePage() {
   const [phase, setPhase] = useState<Phase>("input");
   const [draftState, setDraftState] = useState<PipelineResult | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
+
+  // Field change resets the subfield and applies the discipline's default venue.
+  const handleFieldChange = (f: string, s: string) => {
+    setSubfield(s);
+    if (f !== field) {
+      setField(f);
+      setVenue(getField(f).defaults.venue);
+    }
+  };
 
   const run = async () => {
     if (!topic.trim()) {
@@ -65,7 +78,7 @@ export default function PipelinePage() {
           topic,
           target_venue: venue,
           output_type: outputType,
-          constraints: { max_results: maxResults },
+          constraints: { max_results: maxResults, field, subfield },
         });
         setResult(res);
         setPhase("done");
@@ -85,7 +98,7 @@ export default function PipelinePage() {
         topic,
         target_venue: venue,
         output_type: outputType,
-        constraints: { max_results: maxResults, humanize_fraction: humanizeFraction },
+        constraints: { max_results: maxResults, humanize_fraction: humanizeFraction, field, subfield },
       };
       const drafted = await runStages(
         ["search", "topic_mining", "qa", "outline", "drafting"],
@@ -145,9 +158,10 @@ export default function PipelinePage() {
               className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-400/60"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. graph neural networks for smart grid load forecasting"
+              placeholder={getField(field).placeholder}
             />
           </label>
+          <FieldSelector field={field} subfield={subfield} onChange={handleFieldChange} />
           <label className="text-sm text-zinc-300">
             Target venue
             <select
@@ -201,7 +215,7 @@ export default function PipelinePage() {
               </span>
               <input
                 type="range"
-                min={20}
+                min={10}
                 max={60}
                 step={5}
                 value={Math.round(humanizeFraction * 100)}

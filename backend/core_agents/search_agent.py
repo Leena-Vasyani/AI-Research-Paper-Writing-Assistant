@@ -966,6 +966,7 @@ class SearchAgent:
         max_results: int = 5,
         topic: Optional[str] = None,
         domain: Optional[str] = None,
+        sources: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Advanced retrieval using main keywords + subtopic variations.
@@ -982,6 +983,7 @@ class SearchAgent:
             max_results=max_results,
             topic=topic,
             domain=domain,
+            sources=sources,
         )
 
     # ------------------------------------------------------------------
@@ -1047,10 +1049,17 @@ class SearchAgent:
         queries: List[str],
         keywords: List[str],
         max_results: int = 8,
+        sources: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Execute boolean query strings concurrently — arXiv (native boolean)
-        + Semantic Scholar / CrossRef (operator-stripped keyword form) — then
-        merge/dedupe/rank into a single ranked corpus + citation graph."""
+        """Execute boolean query strings concurrently across the field's sources —
+        arXiv (native boolean) + Semantic Scholar / CrossRef / OpenAlex / PubMed
+        (operator-stripped keyword form) — then merge/dedupe/rank into a single
+        ranked corpus + citation graph.
+
+        ``sources`` (from the field's retrieval profile) selects which providers
+        run; when omitted it defaults to the arXiv-centric CS set for backwards
+        compatibility. Non-STEM fields pass e.g. OpenAlex/Semantic Scholar/CrossRef
+        so retrieval isn't pinned to arXiv."""
         from backend.core_agents.query_builder import strip_boolean
 
         cap = int(os.getenv("SEARCH_MAX_BOOL_QUERIES", "8"))
@@ -1061,27 +1070,36 @@ class SearchAgent:
                 "citation_graph": self.build_citation_graph([]), "boolean_queries_used": [],
             }
 
+        # Resolve active sources (only those with a boolean-capable fetcher).
+        _supported = {"arxiv", "semantic_scholar", "crossref", "openalex", "pubmed"}
+        active_sources = [s.lower() for s in (sources or ["arxiv", "semantic_scholar", "crossref"])]
+        active_sources = [s for s in active_sources if s in _supported] or ["semantic_scholar", "crossref"]
+
         per_q = max(3, max_results // 2)
         source_status: Dict[str, str] = {}
+
+        def _fetch_one(src: str, q: str, plain: str) -> List[Dict]:
+            if src == "arxiv":
+                return self._retrieve_arxiv([], per_q, raw_query=q)
+            if src == "semantic_scholar":
+                return self._retrieve_semantic_scholar([], per_q, raw_query=plain)
+            if src == "crossref":
+                return self._retrieve_crossref([plain], per_q)
+            if src == "openalex":
+                return self._retrieve_openalex([plain], per_q)
+            if src == "pubmed":
+                return self._retrieve_pubmed([plain], per_q)
+            return []
 
         def _run(q: str) -> List[Dict]:
             out: List[Dict] = []
             plain = strip_boolean(q)
-            try:
-                out.extend(self._retrieve_arxiv([], per_q, raw_query=q))
-                source_status["arxiv"] = "ok"
-            except Exception:
-                source_status.setdefault("arxiv", "error")
-            try:
-                out.extend(self._retrieve_semantic_scholar([], per_q, raw_query=plain))
-                source_status["semantic_scholar"] = "ok"
-            except Exception:
-                source_status.setdefault("semantic_scholar", "error")
-            try:
-                out.extend(self._retrieve_crossref([plain], per_q))
-                source_status["crossref"] = "ok"
-            except Exception:
-                source_status.setdefault("crossref", "error")
+            for src in active_sources:
+                try:
+                    out.extend(_fetch_one(src, q, plain))
+                    source_status[src] = "ok"
+                except Exception:
+                    source_status.setdefault(src, "error")
             return out
 
         all_candidates: List[Dict] = []

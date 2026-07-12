@@ -15,6 +15,8 @@ import {
   ThemesView,
 } from "@/components/pipeline/PipelineCards";
 import HumanizePanel from "@/components/pipeline/HumanizePanel";
+import FieldSelector from "@/components/FieldSelector";
+import { DEFAULT_FIELD_ID, getField } from "@/lib/fields";
 
 type StepId =
   | "search"
@@ -41,9 +43,21 @@ function getErrorMessage(e: unknown): string {
 
 export default function WorkflowPage() {
   const [topic, setTopic] = useState("");
+  const [field, setField] = useState(DEFAULT_FIELD_ID);
+  const [subfield, setSubfield] = useState("");
   const [venue, setVenue] = useState("IEEE");
   const [outputType, setOutputType] = useState("research_paper");
   const [maxResults, setMaxResults] = useState(8);
+  const [humanizeOn, setHumanizeOn] = useState(true);
+
+  // Field change resets the subfield and applies the discipline's default venue.
+  const handleFieldChange = (f: string, s: string) => {
+    setSubfield(s);
+    if (f !== field) {
+      setField(f);
+      setVenue(getField(f).defaults.venue);
+    }
+  };
   const [humanizeFraction, setHumanizeFraction] = useState(0.4);
 
   const [state, setState] = useState<PipelineResult | null>(null);
@@ -83,7 +97,7 @@ export default function WorkflowPage() {
           topic,
           target_venue: venue,
           output_type: outputType,
-          constraints: { max_results: maxResults },
+          constraints: { max_results: maxResults, field, subfield },
         });
         setState(res);
         setOpenStep("topic_mining");
@@ -154,7 +168,7 @@ export default function WorkflowPage() {
         return <BlueprintView blueprint={state?.blueprint} />;
       case "drafting":
         if (!state?.draft?.sections) return <DraftPreview draft={state?.draft} />;
-        if (!draftHumanized)
+        if (humanizeOn && !draftHumanized)
           return (
             <HumanizePanel
               draft={state.draft}
@@ -170,7 +184,17 @@ export default function WorkflowPage() {
               }}
             />
           );
-        return <DraftPreview draft={state.draft} />;
+        return (
+          <div className="space-y-3">
+            {!humanizeOn && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+                Manual humanization is off — Review runs on the raw generated draft. Turn it
+                on above to rewrite each body section and cut plagiarism risk.
+              </div>
+            )}
+            <DraftPreview draft={state.draft} />
+          </div>
+        );
       case "review":
         return <ReviewReport review={state?.review} revisionCount={state?.revision_count} />;
       case "finalize":
@@ -194,9 +218,10 @@ export default function WorkflowPage() {
               className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-400/60"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. graph neural networks for smart grid load forecasting"
+              placeholder={getField(field).placeholder}
             />
           </label>
+          <FieldSelector field={field} subfield={subfield} onChange={handleFieldChange} />
           <label className="text-sm text-zinc-300">
             Target venue
             <select
@@ -232,21 +257,33 @@ export default function WorkflowPage() {
               onChange={(e) => setMaxResults(Number(e.target.value))}
             />
           </label>
-          <label className="md:col-span-2 text-sm text-zinc-300">
-            Humanization strictness ·{" "}
-            <span className="text-indigo-200">
-              rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
-            </span>
+          <label className="md:col-span-2 flex items-center gap-2 text-sm text-zinc-300">
             <input
-              type="range"
-              min={20}
-              max={60}
-              step={5}
-              value={Math.round(humanizeFraction * 100)}
-              onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
-              className="mt-2 w-full accent-indigo-400"
+              type="checkbox"
+              checked={humanizeOn}
+              onChange={(e) => setHumanizeOn(e.target.checked)}
+              className="h-4 w-4 accent-indigo-400"
             />
+            Require manual humanization — edit each body section before review to cut
+            plagiarism
           </label>
+          {humanizeOn && (
+            <label className="md:col-span-2 text-sm text-zinc-300">
+              Humanization strictness ·{" "}
+              <span className="text-indigo-200">
+                rewrite ≥ {Math.round(humanizeFraction * 100)}% of words per body section
+              </span>
+              <input
+                type="range"
+                min={10}
+                max={60}
+                step={5}
+                value={Math.round(humanizeFraction * 100)}
+                onChange={(e) => setHumanizeFraction(Number(e.target.value) / 100)}
+                className="mt-2 w-full accent-indigo-400"
+              />
+            </label>
+          )}
         </div>
         {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
         {state?.stage_timings && (
@@ -265,7 +302,7 @@ export default function WorkflowPage() {
             (s.id === "qa" && done.topic_mining) ||
             (s.id === "outline" && done.qa) ||
             (s.id === "drafting" && done.outline) ||
-            (s.id === "review" && done.drafting && draftHumanized) ||
+            (s.id === "review" && done.drafting && (draftHumanized || !humanizeOn)) ||
             (s.id === "finalize" && done.review);
           return (
             <section

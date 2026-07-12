@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from backend.runtime import fields
 from backend.runtime.nodes._base import node, query_agent, search_agent
 from backend.runtime.state import PipelineState
 
@@ -17,6 +18,14 @@ from backend.runtime.state import PipelineState
 def search_node(state: PipelineState) -> Dict[str, Any]:
     topic = state["topic"]
     constraints = state.get("constraints", {})
+
+    # Discipline routing: map an explicitly chosen field to a source profile +
+    # coarse domain. "general" (the default) is left unrouted so the Search Agent
+    # keeps auto-classifying by keywords, preserving prior behavior.
+    field, _subfield = fields.field_from_constraints(constraints)
+    explicit_field = field != fields.DEFAULT_FIELD
+    field_sources = fields.sources_for(field) if explicit_field else None
+    field_domain = fields.domain_for(field) if explicit_field else None
 
     analysis = query_agent().run(topic, top_keywords=constraints.get("top_keywords", 8))
     keywords = analysis.get("keywords", []) or [topic]
@@ -40,14 +49,18 @@ def search_node(state: PipelineState) -> Dict[str, Any]:
 
     if boolean_queries:
         retrieval = agent.retrieve_with_boolean_queries(
-            boolean_queries, keywords, max_results=max_results
+            boolean_queries, keywords, max_results=max_results, sources=field_sources
         )
     elif subtopics:
         retrieval = agent.retrieve_papers_multi_query(
-            keywords, subtopics, max_results=max_results
+            keywords, subtopics, max_results=max_results,
+            domain=field_domain, sources=field_sources,
         )
     else:
-        retrieval = agent.retrieve_papers(keywords, max_results=max_results)
+        retrieval = agent.retrieve_papers(
+            keywords, max_results=max_results,
+            domain=field_domain, sources=field_sources,
+        )
 
     if boolean_queries:
         analysis["boolean_queries"] = boolean_queries

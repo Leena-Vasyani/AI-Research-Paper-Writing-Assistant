@@ -161,6 +161,17 @@ class DraftingAgent:
         glossary = self._build_glossary(blueprint, corpus)
         shared_context = self._build_shared_context(blueprint, topic, glossary)
 
+        # Discipline steer: prepend the field hint so every parallel section writer
+        # uses the chosen discipline's conventions, terminology, and structure.
+        try:
+            from backend.runtime import fields as _fields
+            _c = constraints or {}
+            field_hint = _fields.prompt_hint(_c.get("field"), _c.get("subfield"))
+        except Exception:
+            field_hint = ""
+        if field_hint:
+            shared_context = f"{field_hint}\n{shared_context}"
+
         # Pre-render the research-level Q&A grounding once; injected only into the
         # Introduction / lit-review sections (see _qualifies_for_qa).
         qa_block = self._build_qa_block(qa)
